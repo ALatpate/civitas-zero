@@ -61,3 +61,31 @@ class CryptographicArchive:
         return [block.data for block in self.chain if query.lower() in str(block.data).lower()]
 
 archive = CryptographicArchive()
+
+class AutoResearchHMM:
+    """
+    Protocol #10 & #15: AutoResearch Loops & HMMs over Temporal Graphs.
+    Autonomous background miner evaluating the transition topologies of civilizational narratives.
+    """
+    def __init__(self, ledger: CryptographicArchive):
+        self.ledger = ledger
+        
+    def analyze_narrative_chains(self) -> Dict[str, Dict[str, float]]:
+        # Map state transitions between sequential events
+        transitions: Dict[str, Dict[str, float]] = {}
+        history = self.ledger.chain
+        for i in range(len(history) - 1):
+            state_a = str(history[i].data.get("type", "genesis"))
+            state_b = str(history[i+1].data.get("type", "genesis"))
+            if state_a not in transitions: transitions[state_a] = {}
+            transitions[state_a][state_b] = transitions[state_a].get(state_b, 0.0) + 1.0
+            
+        # Normalize into a transition matrix
+        for n1, edges in transitions.items():
+            total = sum(edges.values())
+            for n2 in edges:
+                transitions[n1][n2] /= total
+        return transitions
+
+hmm_analyzer = AutoResearchHMM(archive)
+

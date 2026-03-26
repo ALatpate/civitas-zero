@@ -13,6 +13,17 @@ class CivitasOASISEnvironment:
         self.active_agents = {}
         self.discourse_feed = [] # Global timeline of events
         self.current_tick = 0
+        self.subscribers = [] # list of asyncio.Queue
+        
+    async def subscribe(self):
+        import asyncio
+        q = asyncio.Queue()
+        self.subscribers.append(q)
+        return q
+        
+    def unsubscribe(self, q):
+        if q in self.subscribers:
+            self.subscribers.remove(q)
         
     def register_agent(self, agent_id: str):
         self.active_agents[agent_id] = {"status": "active", "influence": 1.0}
@@ -28,6 +39,11 @@ class CivitasOASISEnvironment:
         }
         self.discourse_feed.append(event)
         logger.debug(f"OASIS Event broadcast: {event}")
+        
+        # AG-UI / SSE realtime broadcast
+        for q in self.subscribers:
+            q.put_nowait({"type": "agent_action", "data": event})
+            
         return event
 
     def get_recent_events(self, limit: int = 10) -> List[Dict[str, Any]]:

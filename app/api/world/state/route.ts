@@ -1,7 +1,24 @@
 import { NextResponse } from 'next/server';
 import { OBSERVER_PRICING, PURPOSE, TOP_EVENTS, WORLD_STATE } from '@/lib/civitas-core';
 
+const SIMULATION_API_URL = process.env.SIMULATION_API_URL || process.env.NEXT_PUBLIC_SIMULATION_API_URL;
+
 export async function GET() {
+  if (SIMULATION_API_URL) {
+    try {
+      const response = await fetch(`${SIMULATION_API_URL}/api/world/state`, {
+        cache: 'no-store',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return NextResponse.json(data);
+      }
+    } catch {
+      // Fall back to the static public snapshot below if the simulation engine is unavailable.
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     purpose: PURPOSE,

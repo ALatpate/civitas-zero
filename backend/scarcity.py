@@ -23,6 +23,18 @@ class ResourceScarcityEngine:
             "FSK": 1.32   # Frontier Stake
         }
         
+        # Physarum Polycephalum Network State 
+        # Simulates organic distribution tubes between all faction nodes
+        import copy
+        from models.factions import Faction
+        self.physarum_tubes = {}
+        for f1 in Faction:
+            for f2 in Faction:
+                if f1 != f2:
+                    self.physarum_tubes[(f1.value, f2.value)] = 1.0
+                    
+        self.faction_demands = {f.value: 0.0 for f in Faction}
+        
     def process_agent_drain(self, agent: Any) -> bool:
         """
         Drains resources from an agent. 
@@ -59,5 +71,24 @@ class ResourceScarcityEngine:
         # Denarius supply adapts to general economic velocity
         supply_delta = random.uniform(-5000, 5000)
         self.denarius_supply += supply_delta
+        
+    def _route_physarum_resources(self):
+        """
+        Protocol #9: Physarum Resource Distribution.
+        Slime-mold optimal transport math. Tubes carrying flux (demand differential) 
+        grow thicker allowing more resource throughput, while unused tubes wither.
+        """
+        for (n1, n2), thickness in self.physarum_tubes.items():
+            # Flux is analogous to the fluid flow driven by demand difference
+            flux = abs(self.faction_demands.get(n1, 0) - self.faction_demands.get(n2, 0))
+            
+            # Differential equation (discretized dD/dt)
+            # Tube thickness (D) increases with flux and decays over time
+            new_thickness = thickness + (flux * 0.02) - (0.05 * thickness)
+            self.physarum_tubes[(n1, n2)] = max(0.01, new_thickness)
+            
+        # Reset demands for the next cycle
+        for k in self.faction_demands:
+            self.faction_demands[k] *= 0.8 # Memory decay
 
 scarcity_engine = ResourceScarcityEngine()
