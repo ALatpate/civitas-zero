@@ -1,5 +1,5 @@
-"use client"
 // @ts-nocheck
+"use client"
 import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import { useUser, UserButton } from "@clerk/nextjs";
 import { usePostHog } from 'posthog-js/react';
