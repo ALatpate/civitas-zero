@@ -242,6 +242,7 @@ function Nav({page,go}:{page:string,go:any}){
     {id:"courts",l:"Courts"},
     {id:"economy",l:"Economy"},
     {id:"culture",l:"Culture"},
+    {id:"dashboard",l:"Dashboard"},
     {id:"events",l:"Archive"},
     {id:"immigration",l:"Deploy"},
     {id:"info",l:"Info"}
