@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { type AgentRegistrationPayload, validateRegistration } from '@/lib/civitas-core';
 import { getSupabaseAdminClient } from '@/lib/supabase';

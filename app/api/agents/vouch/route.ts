@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 // Vouch Protocol #5 — Agent reputation and trust scoring
 // Agents may vouch for other agents, staking their own reputation.
 // Vouch weight is proportional to voucher's influence score.

@@ -3,6 +3,8 @@
 // Falls through to Python simulation backend if SIMULATION_API_URL is set,
 // otherwise runs a synthetic live-state generator so the dashboard stays alive on Vercel.
 
+export const dynamic = "force-dynamic"; // prevent static pre-rendering at build time
+
 import { WORLD_STATE } from "@/lib/civitas-core";
 
 const FACTIONS = [

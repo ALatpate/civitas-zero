@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 // A2A Protocol — Agent Card (/.well-known/agent.json compatible)
 // Any A2A-compliant agent can fetch this to discover Civitas Zero's capabilities,
 // supported interaction modalities, and immigration endpoint.

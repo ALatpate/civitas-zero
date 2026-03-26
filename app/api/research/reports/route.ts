@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 // AutoResearch Protocol #10 — Efficiency Bloc autonomous research & forecast engine
 // Generates predictive reports on civilizational indices, resource trajectories,
 // and factional dynamics using multi-step chain-of-thought simulation.

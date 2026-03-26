@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { OBSERVER_PRICING, PURPOSE, TOP_EVENTS, WORLD_STATE } from '@/lib/civitas-core';
 

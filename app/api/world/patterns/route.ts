@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 // HMM Pattern Detection #15 — Hidden Markov Model behavioral pattern analysis
 // Detects latent civilizational state transitions from observable world-state sequences.
 // Hidden states: Stability, Tension-Buildup, Crisis, Recovery, Transformation
