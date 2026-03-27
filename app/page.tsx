@@ -400,8 +400,10 @@ function AIWorldViewer(){
   const clickRef = useRef<{x:number,y:number}|null>(null);
   const boxesRef = useRef<Array<{idx:number,x0:number,x1:number,y0:number,y1:number,depth:number}>>([]);
   const selRef = useRef(-1);
-  const walkersRef = useRef<Array<{x:number,z:number,tx:number,tz:number,col:string,id:string,spd:number,isVeh:boolean}>>([]);
+  const svRef = useRef({active:false,pitch:0.05});
+  const walkersRef = useRef<Array<{x:number,z:number,tx:number,tz:number,col:string,id:string,spd:number,isVeh:boolean,lane?:string,lanePos?:number}>>([]);
   const [selIdx, setSelIdx] = useState(-1);
+  const [svMode, setSvMode] = useState(false);
 
   useEffect(()=>{
     const canvas = cvs.current; if(!canvas) return;
@@ -412,15 +414,28 @@ function AIWorldViewer(){
     const WC=["#93c5fd","#86efac","#fca5a5","#c4b5fd","#fde68a","#fdba74","#67e8f9","#f9a8d4","#a5f3fc","#bbf7d0","#fecdd3","#ddd6fe"];
     const RL=[-97,-32,32,97];
     if(walkersRef.current.length===0){
-      walkersRef.current=Array.from({length:12},(_,i)=>({
-        x:RL[i%4]+(Math.random()-0.5)*4,
-        z:(Math.random()-0.5)*180,
-        tx:RL[(i+2)%4],
-        tz:(Math.random()-0.5)*180,
-        col:WC[i],id:`OBS-${i+1}`,
-        spd:i<5?0.9:0.28,
-        isVeh:i<5,
-      }));
+      const vehCfg=[
+        {lane:'z',lanePos:-97},{lane:'z',lanePos:-32},{lane:'z',lanePos:32},
+        {lane:'x',lanePos:-32},{lane:'x',lanePos:32},
+      ];
+      walkersRef.current=Array.from({length:12},(_,i)=>{
+        if(i<5){
+          const vc=vehCfg[i];
+          return{
+            x:vc.lane==='z'?vc.lanePos:(Math.random()-0.5)*160,
+            z:vc.lane==='z'?(Math.random()-0.5)*160:vc.lanePos,
+            tx:vc.lane==='z'?vc.lanePos:(Math.random()>0.5?130:-130),
+            tz:vc.lane==='z'?(Math.random()>0.5?130:-130):vc.lanePos,
+            col:WC[i],id:`OBS-${i+1}`,spd:0.9,isVeh:true,
+            lane:vc.lane,lanePos:vc.lanePos,
+          };
+        }
+        return{
+          x:RL[i%4]+(Math.random()-0.5)*4,z:(Math.random()-0.5)*180,
+          tx:RL[(i+2)%4],tz:(Math.random()-0.5)*180,
+          col:WC[i],id:`OBS-${i+1}`,spd:0.28,isVeh:false,
+        };
+      });
     }
 
     const STARS=Array.from({length:280},(_,i)=>({
@@ -441,14 +456,21 @@ function AIWorldViewer(){
       dragRef.current.x=e.clientX;dragRef.current.y=e.clientY;
       const c=camRef.current;
       c.angle-=dx*0.007;
-      c.pitch=Math.max(0.12,Math.min(1.35,c.pitch+dy*0.004));
+      if(svRef.current.active){
+        svRef.current.pitch=Math.max(-0.75,Math.min(0.75,svRef.current.pitch+dy*0.004));
+      } else {
+        c.pitch=Math.max(0.12,Math.min(1.35,c.pitch+dy*0.004));
+      }
     }
     function onMU(e:MouseEvent){
       if(!dragRef.current.moved){const r=canvas.getBoundingClientRect();clickRef.current={x:(e.clientX-r.left)*PR,y:(e.clientY-r.top)*PR};}
       dragRef.current.active=false;
     }
     function onWhl(e:WheelEvent){const c=camRef.current;c.dist=Math.max(50,Math.min(700,c.dist+e.deltaY*0.25));e.preventDefault();}
-    function onKD(e:KeyboardEvent){keysRef.current.add(e.key.toLowerCase());}
+    function onKD(e:KeyboardEvent){
+      keysRef.current.add(e.key.toLowerCase());
+      if(e.key.toLowerCase()==='v'){svRef.current.active=!svRef.current.active;setSvMode(svRef.current.active);}
+    }
     function onKU(e:KeyboardEvent){keysRef.current.delete(e.key.toLowerCase());}
 
     canvas.addEventListener("mousedown",onMD);
@@ -462,7 +484,8 @@ function AIWorldViewer(){
     function draw(){
       tv+=0.004;const t=tv;
       const c=camRef.current;
-      const spd=c.dist*0.006,keys=keysRef.current;
+      const isSV=svRef.current.active;
+      const spd=isSV?1.4:c.dist*0.006,keys=keysRef.current;
       const sa=Math.sin(c.angle),ca=Math.cos(c.angle);
       if(keys.has('w')||keys.has('arrowup'))   {c.tx+=spd*sa;c.tz+=spd*ca;}
       if(keys.has('s')||keys.has('arrowdown')) {c.tx-=spd*sa;c.tz-=spd*ca;}
@@ -478,6 +501,20 @@ function AIWorldViewer(){
       const camWX=c.tx+camRad*sinA,camWZ=c.tz+camRad*cosA,camWY=c.dist*sinP;
 
       function proj(wx:number,wy:number,wz:number){
+        if(isSV){
+          // Street View: first-person camera at eye height
+          const EYE_H=3;
+          const sv=svRef.current;
+          const ddx=wx-c.tx,ddy=wy-EYE_H,ddz=wz-c.tz;
+          const r1x=ddx*cosA-ddz*sinA;
+          const r1zf=ddx*sinA+ddz*cosA;
+          // X-tilt (pitch): positive = look down
+          const r2y=ddy*Math.cos(sv.pitch)-r1zf*Math.sin(sv.pitch);
+          const r2z=ddy*Math.sin(sv.pitch)+r1zf*Math.cos(sv.pitch);
+          if(r2z<=0)return null;
+          const sc=FOV/r2z;
+          return{sx:W/2+r1x*sc,sy:H/2-r2y*sc,sc:sc*0.012,depth:r2z};
+        }
         const dx=wx-c.tx,dz=wz-c.tz;
         const r1x=dx*cosA-dz*sinA,r1z=dx*sinA+dz*cosA;
         const t1y=wy-c.dist*sinP,t1z=r1z-c.dist*cosP;
@@ -572,6 +609,26 @@ function AIWorldViewer(){
 
       // ── Update & render walkers ──
       for(const w of walkersRef.current){
+        if(w.isVeh && w.lane){
+          // Lane-constrained vehicle movement
+          if(w.lane==='z'){
+            w.x=w.lanePos; // snap to lane X
+            const dz2=w.tz-w.z;
+            if(Math.abs(dz2)<5){w.tz=(w.tz>0?-130:130);}
+            else{
+              const nearInter=RL2.some(r=>Math.abs(w.z-r)<18);
+              w.z+=Math.sign(dz2)*w.spd*(nearInter?0.28:1);
+            }
+          } else {
+            w.z=w.lanePos; // snap to lane Z
+            const dx2=w.tx-w.x;
+            if(Math.abs(dx2)<5){w.tx=(w.tx>0?-130:130);}
+            else{
+              const nearInter=RL2.some(r=>Math.abs(w.x-r)<18);
+              w.x+=Math.sign(dx2)*w.spd*(nearInter?0.28:1);
+            }
+          }
+        } else {
         const dx=w.tx-w.x,dz=w.tz-w.z,dist=Math.sqrt(dx*dx+dz*dz);
         if(dist<6){
           // Pick new target on a road
@@ -582,6 +639,7 @@ function AIWorldViewer(){
         } else {
           w.x+=(dx/dist)*w.spd;
           w.z+=(dz/dist)*w.spd;
+        }
         }
         const wp=proj(w.x,w.isVeh?1.5:1.0,w.z);if(!wp)continue;
         const cr3=parseInt(w.col.slice(1,3),16),cg3=parseInt(w.col.slice(3,5),16),cb3=parseInt(w.col.slice(5,7),16);
@@ -923,8 +981,20 @@ function AIWorldViewer(){
       </div>
 
       <div style={{position:"absolute",bottom:16,left:"50%",transform:"translateX(-50%)",padding:"4px 14px",borderRadius:20,background:"rgba(3,6,9,0.75)",border:"1px solid rgba(255,255,255,0.05)",pointerEvents:"none"}}>
-        <span style={{fontSize:9,color:"#3f3f46",letterSpacing:"0.08em"}}>drag to rotate · scroll to zoom · WASD to move · click building</span>
+        <span style={{fontSize:9,color:"#3f3f46",letterSpacing:"0.08em"}}>{svMode?"drag to look · WASD to walk · V to exit street view":"drag to rotate · scroll to zoom · WASD to move · V for street view · click building"}</span>
       </div>
+
+      <button
+        onClick={()=>{svRef.current.active=!svRef.current.active;setSvMode(svRef.current.active);}}
+        style={{
+          position:"absolute",top:62,right:selIdx>=0?280:16,
+          padding:"6px 12px",borderRadius:8,cursor:"pointer",
+          background:svMode?"rgba(192,132,252,0.18)":"rgba(3,6,9,0.88)",
+          border:`1px solid ${svMode?"rgba(192,132,252,0.55)":"rgba(255,255,255,0.1)"}`,
+          color:svMode?"#c084fc":"#71717a",fontSize:11,fontFamily:"monospace",
+          backdropFilter:"blur(10px)",transition:"all 0.2s",pointerEvents:"auto",
+        }}
+      >{svMode?"⬆ Exit Street View":"👁 Street View [V]"}</button>
 
       <div style={{position:"absolute",top:62,left:16,padding:"8px 14px",borderRadius:10,background:"rgba(3,6,9,0.88)",border:"1px solid rgba(255,255,255,0.06)"}}>
         <div style={{fontSize:9,color:"#52525b",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4}}>AI Systems</div>
