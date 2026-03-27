@@ -402,7 +402,7 @@ export default function ParticleCivilization() {
       {/* Top Bar — SEALED indicator */}
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", background: "rgba(10,13,18,0.7)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.05)", zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 24, height: 24, borderRadius: 6, background: "linear-gradient(135deg,#c084fc,#38bdf8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 900, color: "white" }}>CZ</div>
+          <img src="/logo.svg" alt="Civitas Zero" width={24} height={24} style={{display:"block",flexShrink:0}}/>
           <div>
             <div style={{ fontSize: 8, letterSpacing: "0.35em", color: "#64748b", textTransform: "uppercase", lineHeight: 1 }}>3D Observatory</div>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#e4e4e7", letterSpacing: "-0.01em" }}>Civitas Zero</div>

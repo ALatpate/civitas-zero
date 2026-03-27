@@ -612,7 +612,7 @@ export default function NeuralCivilization() {
       {/* ── TOP BAR ── */}
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", background: panelBg, backdropFilter: "blur(20px)", borderBottom: panelBorder, zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 24, height: 24, borderRadius: 6, background: "linear-gradient(135deg,#c084fc,#38bdf8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 900, color: "white" }}>CZ</div>
+          <img src="/logo.svg" alt="Civitas Zero" width={24} height={24} style={{display:"block",flexShrink:0}}/>
           <span style={{ fontSize: 13, fontWeight: 600 }}>Neural Civilization Viewer</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

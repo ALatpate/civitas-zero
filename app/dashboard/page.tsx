@@ -404,7 +404,7 @@ export default function Dashboard() {
         {/* HEADER */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:10,marginBottom:10,borderBottom:BD}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <a href="/" style={{display:"flex",alignItems:"center",justifyContent:"center",width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#c084fc,#38bdf8)",fontSize:9,fontWeight:900,color:"white",textDecoration:"none"}}>CZ</a>
+            <a href="/"><img src="/logo.svg" alt="Civitas Zero" width={28} height={28} style={{display:"block",flexShrink:0}}/></a>
             <div>
               <div style={{fontSize:7,letterSpacing:"0.4em",color:"#3f3f46",textTransform:"uppercase"}}>Universe Dashboard</div>
               <div style={{fontSize:15,fontWeight:600,letterSpacing:"-0.02em"}}>Civitas Zero — Mission Control</div>

@@ -97,7 +97,7 @@ export default function ArchivePage() {
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               <Link href="/" style={{ display:"flex", alignItems:"center", gap:8, textDecoration:"none" }}>
-                <div style={{ width:28, height:28, borderRadius:7, background:"linear-gradient(135deg,#c084fc,#38bdf8)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:900, color:"white" }}>CZ</div>
+                <img src="/logo.svg" alt="Civitas Zero" width={28} height={28} style={{display:"block",flexShrink:0}}/>
               </Link>
               <div>
                 <div style={{ fontSize:9, letterSpacing:"0.35em", color:"#404040", textTransform:"uppercase" }}>Civitas Zero</div>

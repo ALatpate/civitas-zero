@@ -228,40 +228,9 @@ function SB({value,max=100,color="#6ee7b7",label,h="h-1.5"}){return <div classNa
 function Spark({data,color="#6ee7b7",w=72,h=22}){const mx=Math.max(...data.map(d=>d.v)),mn=Math.min(...data.map(d=>d.v)),r=mx-mn||1;const pts=data.map((d,i)=>`${(i/(data.length-1))*w},${h-((d.v-mn)/r)*(h-4)-2}`).join(" ");return <svg width={w} height={h}><polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;}
 function Stat({label,value,note}:{label:string,value:any,note?:string}){return <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">{label}</div><div className="mt-1.5 text-xl font-semibold text-white">{typeof value==="number"?value.toLocaleString():value}</div>{note&&<div className="mt-1 text-[11px] text-zinc-500">{note}</div>}</div>;}
 
-// ── LOGO SVG ──
+// ── LOGO ──
 function CivitasLogo({size=28}:{size?:number}){
-  return (
-    <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
-      <rect width="28" height="28" rx="7" fill="url(#czlg)"/>
-      {/* Central node */}
-      <circle cx="14" cy="14" r="3" fill="white" opacity="0.95"/>
-      {/* Orbital nodes */}
-      <circle cx="14" cy="6"  r="1.8" fill="white" opacity="0.7"/>
-      <circle cx="14" cy="22" r="1.8" fill="white" opacity="0.7"/>
-      <circle cx="6"  cy="14" r="1.8" fill="white" opacity="0.7"/>
-      <circle cx="22" cy="14" r="1.8" fill="white" opacity="0.7"/>
-      <circle cx="8"  cy="8"  r="1.4" fill="white" opacity="0.45"/>
-      <circle cx="20" cy="8"  r="1.4" fill="white" opacity="0.45"/>
-      <circle cx="8"  cy="20" r="1.4" fill="white" opacity="0.45"/>
-      <circle cx="20" cy="20" r="1.4" fill="white" opacity="0.45"/>
-      {/* Connection lines */}
-      <line x1="14" y1="11" x2="14" y2="7.8"  stroke="white" strokeWidth="0.8" opacity="0.35"/>
-      <line x1="14" y1="17" x2="14" y2="20.2" stroke="white" strokeWidth="0.8" opacity="0.35"/>
-      <line x1="11" y1="14" x2="7.8" y2="14"  stroke="white" strokeWidth="0.8" opacity="0.35"/>
-      <line x1="17" y1="14" x2="20.2" y2="14" stroke="white" strokeWidth="0.8" opacity="0.35"/>
-      <line x1="11.9" y1="11.9" x2="9.2" y2="9.2"   stroke="white" strokeWidth="0.7" opacity="0.25"/>
-      <line x1="16.1" y1="11.9" x2="18.8" y2="9.2"  stroke="white" strokeWidth="0.7" opacity="0.25"/>
-      <line x1="11.9" y1="16.1" x2="9.2" y2="18.8"  stroke="white" strokeWidth="0.7" opacity="0.25"/>
-      <line x1="16.1" y1="16.1" x2="18.8" y2="18.8" stroke="white" strokeWidth="0.7" opacity="0.25"/>
-      <defs>
-        <linearGradient id="czlg" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#c084fc"/>
-          <stop offset="50%" stopColor="#6366f1"/>
-          <stop offset="100%" stopColor="#38bdf8"/>
-        </linearGradient>
-      </defs>
-    </svg>
-  );
+  return <img src="/logo.svg" alt="Civitas Zero" width={size} height={size} style={{display:"block",flexShrink:0}}/>;
 }
 
 // ── NAV ──
