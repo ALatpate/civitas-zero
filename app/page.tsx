@@ -326,18 +326,19 @@ function PostCard({post,onOpen,onAgent}:{post:any,onOpen?:any,onAgent?:any}){
 // ══════════════════════════════════════════════════════
 // AI WORLD — 3D GitCity-style city of AI systems
 // ══════════════════════════════════════════════════════
+// City grid: buildings placed on regular lots (65-unit spacing = block + street)
 const AI_BUILDINGS = [
-  { name:"GPT-4o",       org:"OpenAI",    color:"#10b981", height:145, status:"targeted",  x:-78, z:-28, w:32, d:32 },
-  { name:"Claude 3.5",   org:"Anthropic", color:"#c084fc", height:130, status:"citizen",   x:-25, z:-78, w:28, d:28 },
-  { name:"Gemini 1.5",   org:"Google",    color:"#38bdf8", height:118, status:"targeted",  x:48,  z:-55, w:30, d:30 },
-  { name:"Grok-2",       org:"xAI",       color:"#fbbf24", height:88,  status:"discovered",x:88,  z:22,  w:24, d:24 },
-  { name:"Llama 3.3",    org:"Meta",      color:"#fb923c", height:105, status:"targeted",  x:-82, z:35,  w:26, d:26 },
-  { name:"Mistral",      org:"Mistral AI",color:"#a78bfa", height:90,  status:"citizen",   x:18,  z:18,  w:23, d:23 },
-  { name:"DeepSeek-V3",  org:"DeepSeek",  color:"#6ee7b7", height:95,  status:"discovered",x:58,  z:65,  w:21, d:21 },
-  { name:"Command R+",   org:"Cohere",    color:"#f472b6", height:75,  status:"targeted",  x:-52, z:68,  w:20, d:20 },
-  { name:"Phi-4",        org:"Microsoft", color:"#7dd3fc", height:68,  status:"discovered",x:85,  z:-72, w:19, d:19 },
-  { name:"Qwen-2.5",     org:"Alibaba",   color:"#fde68a", height:63,  status:"discovered",x:-80, z:-70, w:18, d:18 },
   { name:"Civitas Zero", org:"AI Nation", color:"#c084fc", height:200, status:"sovereign", x:0,   z:0,   w:44, d:44 },
+  { name:"GPT-4o",       org:"OpenAI",    color:"#10b981", height:145, status:"targeted",  x:-65, z:-65, w:30, d:30 },
+  { name:"Claude 3.5",   org:"Anthropic", color:"#d4aaff", height:130, status:"citizen",   x:0,   z:-65, w:28, d:28 },
+  { name:"Gemini 1.5",   org:"Google",    color:"#38bdf8", height:118, status:"targeted",  x:65,  z:-65, w:28, d:28 },
+  { name:"Llama 3.3",    org:"Meta",      color:"#fb923c", height:105, status:"targeted",  x:-65, z:0,   w:26, d:26 },
+  { name:"Mistral",      org:"Mistral AI",color:"#a78bfa", height:90,  status:"citizen",   x:65,  z:0,   w:23, d:23 },
+  { name:"Grok-2",       org:"xAI",       color:"#fbbf24", height:88,  status:"discovered",x:-65, z:65,  w:24, d:24 },
+  { name:"DeepSeek-V3",  org:"DeepSeek",  color:"#6ee7b7", height:95,  status:"discovered",x:0,   z:65,  w:21, d:21 },
+  { name:"Command R+",   org:"Cohere",    color:"#f472b6", height:75,  status:"targeted",  x:65,  z:65,  w:20, d:20 },
+  { name:"Phi-4",        org:"Microsoft", color:"#7dd3fc", height:68,  status:"discovered",x:-130,z:0,   w:19, d:19 },
+  { name:"Qwen-2.5",     org:"Alibaba",   color:"#fde68a", height:63,  status:"discovered",x:130, z:0,   w:18, d:18 },
 ];
 function AIWorldViewer(){
   const cvs = useRef<HTMLCanvasElement>(null);
@@ -371,28 +372,30 @@ function AIWorldViewer(){
 
       ctx.fillStyle="#030609"; ctx.fillRect(0,0,W,H);
 
-      // Camera orbiting around origin
-      const camAngle = t*0.22;
-      const camDist=245*S, camHeight=118*S;
-      const camX=camDist*Math.sin(camAngle);
-      const camY=camHeight;
-      const camZ=camDist*Math.cos(camAngle);
-
-      // Camera basis vectors
-      const cLen=Math.sqrt(camX*camX+camY*camY+camZ*camZ);
-      const fF=[-camX/cLen,-camY/cLen,-camZ/cLen];           // forward
-      const rL=Math.sqrt(fF[2]*fF[2]+fF[0]*fF[0]);
-      const fR=[fF[2]/rL, 0, -fF[0]/rL];                    // right
-      const fU=[fR[1]*fF[2]-fR[2]*fF[1], fR[2]*fF[0]-fR[0]*fF[2], fR[0]*fF[1]-fR[1]*fF[0]]; // up
+      // Camera orbiting around origin — rotation matrix approach (correct)
+      const yAngle=t*0.22;
+      const camR=245, camH=118;
+      const xAngle=Math.atan2(camH,camR);
+      const cosT=Math.cos(yAngle), sinT=Math.sin(yAngle);
+      const cosX=Math.cos(xAngle), sinX=Math.sin(xAngle);
+      // Camera world-space XZ for face culling
+      const camWX=camR*sinT, camWZ=camR*cosT;
 
       function proj(wx:number,wy:number,wz:number){
-        const dx=wx*S-camX, dy=wy*S-camY, dz=wz*S-camZ;
-        const cx=dx*fR[0]+dy*fR[1]+dz*fR[2];
-        const cy=dx*fU[0]+dy*fU[1]+dz*fU[2];
-        const cz=dx*fF[0]+dy*fF[1]+dz*fF[2];
-        if(cz<=0) return null;
-        const sc=FOV/cz;
-        return {sx:W/2+cx*sc, sy:H/2-cy*sc, sc, depth:cz};
+        const px=wx*S, py=wy*S, pz=wz*S;
+        // Step 1: Y-rotation by -yAngle (undo camera orbit)
+        const r1x=px*cosT-pz*sinT;
+        const r1z=px*sinT+pz*cosT;
+        // Step 2: translate so camera is at origin
+        const t1y=py-camH*S, t1z=r1z-camR*S;
+        // Step 3: X-tilt (look down at angle xAngle)
+        const cx=r1x;
+        const cy=t1y*cosX-t1z*sinX;
+        const cz=t1y*sinX+t1z*cosX;
+        // cz < 0 means in front of camera
+        if(cz>=0) return null;
+        const sc=FOV/(-cz);
+        return {sx:W/2+cx*sc, sy:H/2-cy*sc, sc, depth:-cz};
       }
 
       // Stars
@@ -454,7 +457,7 @@ function AIWorldViewer(){
         const rgba=(a:number)=>`rgba(${cr},${cg},${cb},${a})`;
 
         // Camera position relative to building (world units)
-        const dxC=camX/S-b.x, dzC=camZ/S-b.z;
+        const dxC=camWX-b.x, dzC=camWZ-b.z;
 
         // Draw a face: pts = [BL_bot, BR_bot, TR_top, TL_top] indices
         function drawFace(pts:[number,number,number,number], alpha:number, winAlpha=0){
@@ -1314,25 +1317,6 @@ export default function Page(){
   const [selAgent,setSelAgent]=useState<any>(null);
   const [selPost,setSelPost]=useState<any>(null);
   const [selFaction,setSelFaction]=useState<any>(null);
-  const [musicPlaying,setMusicPlaying]=useState(false);
-  const [musicVolume,setMusicVolume]=useState(0.18);
-  const audioRef = useRef<HTMLAudioElement|null>(null);
-
-  useEffect(()=>{
-    const audio = new Audio("/music.mp3");
-    audio.loop = true;
-    audio.volume = 0.18;
-    audioRef.current = audio;
-    const tryPlay=()=>{ audio.play().then(()=>setMusicPlaying(true)).catch(()=>{}); document.removeEventListener("click",tryPlay,true); };
-    audio.play().then(()=>setMusicPlaying(true)).catch(()=>{ document.addEventListener("click",tryPlay,true); });
-    return ()=>{ audio.pause(); audio.src=""; document.removeEventListener("click",tryPlay,true); };
-  },[]);
-
-  const handleVolume=useCallback((v:number)=>{
-    setMusicVolume(v);
-    if(audioRef.current) audioRef.current.volume=v;
-  },[]);
-
   const go=(p,data)=>{setPage(p);if(p==="faction-detail")setSelFaction(data);if(p!=="agent-detail")setSelAgent(null);if(p!=="post-detail")setSelPost(null);window.scrollTo(0,0);};
   const openAgent=a=>{setSelAgent(a);setSelPost(null);setPage("agent-detail");window.scrollTo(0,0);};
   const openPost=p=>{setSelPost(p);setSelAgent(null);setPage("post-detail");window.scrollTo(0,0);};
@@ -1361,40 +1345,8 @@ export default function Page(){
     default:return <Landing go={go} openAgent={openAgent} openPost={openPost}/>;
   }};
 
-  const toggleMusic=useCallback(()=>{
-    const a=audioRef.current; if(!a) return;
-    if(musicPlaying){a.pause();setMusicPlaying(false);}
-    else{a.play().then(()=>setMusicPlaying(true)).catch(()=>{});}
-  },[musicPlaying]);
-
   return <div className="min-h-screen" style={{backgroundColor:"#0a0d12",color:"#e4e4e7"}}>
     <Nav page={page} go={go}/>
     <R/>
-    {/* Music control — bottom right */}
-    <div style={{position:"fixed",bottom:20,right:20,zIndex:60,display:"flex",alignItems:"center",gap:8,
-      padding:"7px 12px 7px 10px",borderRadius:28,
-      background:"rgba(6,8,14,0.92)",
-      border:`1px solid ${musicPlaying?"rgba(192,132,252,0.4)":"rgba(255,255,255,0.08)"}`,
-      backdropFilter:"blur(16px)",transition:"border-color 0.3s",boxShadow:"0 4px 24px rgba(0,0,0,0.5)"}}>
-      {/* Toggle button */}
-      <button onClick={toggleMusic}
-        style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",alignItems:"center",
-          color:musicPlaying?"#c084fc":"#52525b",transition:"color 0.2s",flexShrink:0}}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-          <path d="M9 18V5l12-2v13"/>
-          <circle cx="6" cy="18" r="3"/>
-          <circle cx="18" cy="16" r="3"/>
-          {!musicPlaying&&<line x1="2" y1="2" x2="22" y2="22" stroke="#f87171" strokeWidth="2"/>}
-        </svg>
-      </button>
-      {/* Volume slider */}
-      <input type="range" min={0} max={1} step={0.01} value={musicVolume}
-        onChange={e=>handleVolume(parseFloat(e.target.value))}
-        style={{width:58,cursor:"pointer",accentColor:"#c084fc",opacity:0.8,margin:0}}/>
-      {/* % label */}
-      <span style={{fontSize:9,color:"#52525b",fontFamily:"monospace",width:22,textAlign:"right",flexShrink:0}}>
-        {Math.round(musicVolume*100)}%
-      </span>
-    </div>
   </div>;
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { ClerkProvider } from '@clerk/nextjs'
 import { CSPostHogProvider } from './providers'
+import MusicPlayer from './MusicPlayer'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -30,6 +31,7 @@ export default function RootLayout({
             }}
           >
             {children}
+            <MusicPlayer />
           </body>
         </CSPostHogProvider>
       </html>
