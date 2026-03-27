@@ -5,14 +5,14 @@ const PRESETS = [0, 0.2, 0.4, 0.6, 0.8];
 
 export default function MusicPlayer() {
   const [playing, setPlaying] = useState(false);
-  const [volume, setVolume] = useState(0.18);
+  const [volume, setVolume] = useState(0.04);
   const [showCredit, setShowCredit] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const audio = new Audio("/music.mp3");
     audio.loop = true;
-    audio.volume = 0.18;
+    audio.volume = 0.04;
     audioRef.current = audio;
     const tryPlay = () => {
       audio.play().then(() => setPlaying(true)).catch(() => {});

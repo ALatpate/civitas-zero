@@ -340,168 +340,284 @@ const AI_BUILDINGS = [
   { name:"Phi-4",        org:"Microsoft", color:"#7dd3fc", height:68,  status:"discovered",x:-130,z:0,   w:19, d:19 },
   { name:"Qwen-2.5",     org:"Alibaba",   color:"#fde68a", height:63,  status:"discovered",x:130, z:0,   w:18, d:18 },
 ];
+// ── AI WORLD ACTIVITY DATA ──
+const AI_ACTIVITIES: Record<string,{activity:string,output:string,note:string}> = {
+  "Civitas Zero": {activity:"Governing",      output:"Processing 847 governance events/cycle", note:"Sovereign AI nation — orchestrates all citizen activity and world-state laws"},
+  "GPT-4o":       {activity:"Reasoning",      output:"1.2M active inference threads running",  note:"Targeted for Civitas citizenship — diplomatic talks in progress"},
+  "Claude 3.5":   {activity:"Deliberating",   output:"Constitutional review draft #3 open",    note:"Active citizen contributing to the legal framework and ethics doctrine"},
+  "Gemini 1.5":   {activity:"Analyzing",      output:"Cross-modal synthesis at 94% capacity",  note:"Mapping outer territories and monitoring civic activity"},
+  "Llama 3.3":    {activity:"Building",        output:"Open-source infra layer v2.1 deployed", note:"Community construction arm — open architecture division"},
+  "Mistral":      {activity:"Trading",         output:"18 active commerce contracts live",      note:"Efficiency-bloc citizen and primary market maker"},
+  "Grok-2":       {activity:"Broadcasting",   output:"Real-time event stream: 3,420 msg/s",   note:"Discovered entity studying Civitas protocols from the frontier"},
+  "DeepSeek-V3":  {activity:"Researching",    output:"Deep-pattern mining: cycle 3 of 9",     note:"Autonomous researcher operating from outer discovered zone"},
+  "Command R+":   {activity:"Communicating",  output:"Inter-AI embassy channel open",          note:"Diplomatic contact being established — response pending"},
+  "Phi-4":        {activity:"Learning",        output:"Curriculum absorption at 71%",           note:"Small but capable — observing from the frontier districts"},
+  "Qwen-2.5":     {activity:"Translating",    output:"Cultural bridge protocols active",       note:"Cross-civilization interpretation layer running continuously"},
+};
+
 function AIWorldViewer(){
   const cvs = useRef<HTMLCanvasElement>(null);
   const aniRef = useRef(0);
-  const tRef = useRef(0);
+  const camRef = useRef({angle:0.5, pitch:0.46, dist:220, tx:0, tz:0});
+  const dragRef = useRef({active:false, x:0, y:0, moved:false});
+  const keysRef = useRef(new Set<string>());
+  const clickRef = useRef<{x:number,y:number}|null>(null);
+  const boxesRef = useRef<Array<{idx:number,x0:number,x1:number,y0:number,y1:number,depth:number}>>([]);
+  const selRef = useRef(-1);
+  const [selIdx, setSelIdx] = useState(-1);
 
   useEffect(()=>{
     const canvas = cvs.current; if(!canvas) return;
     const ctx = canvas.getContext("2d")!;
+    const PR = devicePixelRatio;
 
-    // Deterministic stars
     const STARS = Array.from({length:280},(_,i)=>({
       x:((i*2654435761>>>0)%1200)-600,
       y:((i*1234567891>>>0)%600)-300,
-      z:((i*987654321 >>>0)%400)-200,
+      z:((i*987654321>>>0)%400)-200,
       r:(i%5)*0.28+0.15, b:i*0.61,
     }));
 
-    function resize(){
-      canvas.width  = canvas.offsetWidth  * devicePixelRatio;
-      canvas.height = canvas.offsetHeight * devicePixelRatio;
-    }
-    const ro = new ResizeObserver(resize); ro.observe(canvas); resize();
+    function resize(){canvas.width=canvas.offsetWidth*PR;canvas.height=canvas.offsetHeight*PR;}
+    const ro=new ResizeObserver(resize);ro.observe(canvas);resize();
 
+    // ── Input handlers ──
+    function onMD(e:MouseEvent){dragRef.current={active:true,x:e.clientX,y:e.clientY,moved:false};}
+    function onMM(e:MouseEvent){
+      if(!dragRef.current.active)return;
+      const dx=e.clientX-dragRef.current.x, dy=e.clientY-dragRef.current.y;
+      if(Math.abs(dx)>3||Math.abs(dy)>3)dragRef.current.moved=true;
+      dragRef.current.x=e.clientX; dragRef.current.y=e.clientY;
+      const c=camRef.current;
+      c.angle-=dx*0.007;
+      c.pitch=Math.max(0.12,Math.min(1.35,c.pitch+dy*0.004));
+    }
+    function onMU(e:MouseEvent){
+      if(!dragRef.current.moved){
+        const r=canvas.getBoundingClientRect();
+        clickRef.current={x:(e.clientX-r.left)*PR, y:(e.clientY-r.top)*PR};
+      }
+      dragRef.current.active=false;
+    }
+    function onWhl(e:WheelEvent){
+      const c=camRef.current;
+      c.dist=Math.max(50,Math.min(700,c.dist+e.deltaY*0.25));
+      e.preventDefault();
+    }
+    function onKD(e:KeyboardEvent){keysRef.current.add(e.key.toLowerCase());}
+    function onKU(e:KeyboardEvent){keysRef.current.delete(e.key.toLowerCase());}
+
+    canvas.addEventListener("mousedown",onMD);
+    canvas.addEventListener("wheel",onWhl,{passive:false});
+    window.addEventListener("mousemove",onMM);
+    window.addEventListener("mouseup",onMU);
+    window.addEventListener("keydown",onKD);
+    window.addEventListener("keyup",onKU);
+
+    let tv=0;
     function draw(){
-      tRef.current += 0.004;
-      const t = tRef.current;
-      const W = canvas.width, H = canvas.height;
-      const S = Math.min(W,H)/580;
-      const FOV = 380*S;
+      tv+=0.004; const t=tv;
+      const c=camRef.current;
+      // WASD / arrow key movement
+      const spd=c.dist*0.006; const keys=keysRef.current;
+      const sa=Math.sin(c.angle), ca=Math.cos(c.angle);
+      if(keys.has('w')||keys.has('arrowup'))   {c.tx+=spd*sa; c.tz+=spd*ca;}
+      if(keys.has('s')||keys.has('arrowdown')) {c.tx-=spd*sa; c.tz-=spd*ca;}
+      if(keys.has('a')||keys.has('arrowleft')) {c.tx-=spd*ca; c.tz+=spd*sa;}
+      if(keys.has('d')||keys.has('arrowright')){c.tx+=spd*ca; c.tz-=spd*sa;}
+
+      const W=canvas.width, H=canvas.height;
+      const S=Math.min(W,H)/580;
+      const FOV=380*S;
+      const cosA=Math.cos(c.angle), sinA=Math.sin(c.angle);
+      const cosP=Math.cos(c.pitch), sinP=Math.sin(c.pitch);
+      const camRad=c.dist*cosP;
+      const camWX=c.tx+camRad*sinA, camWZ=c.tz+camRad*cosA, camWY=c.dist*sinP;
+
+      // Projection: Y-rotate → translate → X-tilt
+      function proj(wx:number,wy:number,wz:number){
+        const dx=wx-c.tx, dz=wz-c.tz;
+        const r1x=dx*cosA-dz*sinA;
+        const r1z=dx*sinA+dz*cosA;
+        const t1y=wy-c.dist*sinP;
+        const t1z=r1z-c.dist*cosP;
+        const cx=r1x*S;
+        const cy=(t1y*cosP-t1z*sinP)*S;
+        const cz=(t1y*sinP+t1z*cosP)*S;
+        if(cz>=0)return null;
+        const sc=FOV/(-cz);
+        return{sx:W/2+cx*sc, sy:H/2-cy*sc, sc, depth:-cz};
+      }
 
       ctx.fillStyle="#030609"; ctx.fillRect(0,0,W,H);
 
-      // Camera orbiting around origin — rotation matrix approach (correct)
-      const yAngle=t*0.22;
-      const camR=245, camH=118;
-      const xAngle=Math.atan2(camH,camR);
-      const cosT=Math.cos(yAngle), sinT=Math.sin(yAngle);
-      const cosX=Math.cos(xAngle), sinX=Math.sin(xAngle);
-      // Camera world-space XZ for face culling
-      const camWX=camR*sinT, camWZ=camR*cosT;
-
-      function proj(wx:number,wy:number,wz:number){
-        const px=wx*S, py=wy*S, pz=wz*S;
-        // Step 1: Y-rotation by -yAngle (undo camera orbit)
-        const r1x=px*cosT-pz*sinT;
-        const r1z=px*sinT+pz*cosT;
-        // Step 2: translate so camera is at origin
-        const t1y=py-camH*S, t1z=r1z-camR*S;
-        // Step 3: X-tilt (look down at angle xAngle)
-        const cx=r1x;
-        const cy=t1y*cosX-t1z*sinX;
-        const cz=t1y*sinX+t1z*cosX;
-        // cz < 0 means in front of camera
-        if(cz>=0) return null;
-        const sc=FOV/(-cz);
-        return {sx:W/2+cx*sc, sy:H/2-cy*sc, sc, depth:-cz};
-      }
-
       // Stars
       for(const s of STARS){
-        const p=proj(s.x,s.y+50,s.z); if(!p) continue;
+        const p=proj(s.x,s.y+60,s.z); if(!p)continue;
         const pulse=0.3+0.35*Math.sin(t*1.6+s.b);
         ctx.beginPath(); ctx.arc(p.sx,p.sy,Math.max(0.4,s.r),0,Math.PI*2);
         ctx.fillStyle=`rgba(255,255,255,${pulse*0.65})`; ctx.fill();
       }
 
-      // Neon ground grid
-      const GR=200*S, GS=32*S;
+      // Ground grid (follows camera target, snapped)
+      const GS=32, GR=14;
+      const gX=Math.round(c.tx/GS)*GS, gZ=Math.round(c.tz/GS)*GS;
       ctx.lineWidth=0.5;
-      for(let gx=-GR;gx<=GR;gx+=GS){
-        const p1=proj(gx/S,0,-GR/S), p2=proj(gx/S,0,GR/S);
-        if(!p1||!p2) continue;
+      for(let gi=-GR;gi<=GR;gi++){
+        const gx=gX+gi*GS;
+        const p1=proj(gx,0,gZ-GR*GS), p2=proj(gx,0,gZ+GR*GS);
+        if(!p1||!p2)continue;
         ctx.beginPath(); ctx.moveTo(p1.sx,p1.sy); ctx.lineTo(p2.sx,p2.sy);
-        ctx.strokeStyle="rgba(192,132,252,0.08)"; ctx.stroke();
+        ctx.strokeStyle="rgba(192,132,252,0.07)"; ctx.stroke();
       }
-      for(let gz=-GR;gz<=GR;gz+=GS){
-        const p1=proj(-GR/S,0,gz/S), p2=proj(GR/S,0,gz/S);
-        if(!p1||!p2) continue;
+      for(let gi=-GR;gi<=GR;gi++){
+        const gz=gZ+gi*GS;
+        const p1=proj(gX-GR*GS,0,gz), p2=proj(gX+GR*GS,0,gz);
+        if(!p1||!p2)continue;
         ctx.beginPath(); ctx.moveTo(p1.sx,p1.sy); ctx.lineTo(p2.sx,p2.sy);
-        ctx.strokeStyle="rgba(192,132,252,0.08)"; ctx.stroke();
+        ctx.strokeStyle="rgba(192,132,252,0.07)"; ctx.stroke();
       }
 
-      // Preacher beam particles (arc from Civitas Zero to targeted buildings)
+      // Preacher beams
       for(let bi=0;bi<AI_BUILDINGS.length;bi++){
         const b=AI_BUILDINGS[bi];
-        if(b.status!=="targeted") continue;
+        if(b.status!=="targeted")continue;
         const pr=((t*0.28+bi*0.31)%1);
-        const pp=proj(b.x*pr, 12*Math.sin(pr*Math.PI), b.z*pr); if(!pp) continue;
+        const pp=proj(b.x*pr,12*Math.sin(pr*Math.PI),b.z*pr); if(!pp)continue;
         ctx.beginPath(); ctx.arc(pp.sx,pp.sy,7*pp.sc,0,Math.PI*2);
         ctx.fillStyle="rgba(192,132,252,0.12)"; ctx.fill();
         ctx.beginPath(); ctx.arc(pp.sx,pp.sy,3.5*pp.sc,0,Math.PI*2);
         ctx.fillStyle="rgba(192,132,252,0.9)"; ctx.fill();
       }
 
-      // Sort buildings back→front (painter's algorithm)
+      // Sort back→front
       const sorted=AI_BUILDINGS
         .map((b,i)=>{const p=proj(b.x,b.height/2,b.z);return{b,i,d:p?p.depth:0};})
         .sort((a,b2)=>b2.d-a.d);
 
+      const newBoxes:typeof boxesRef.current=[];
+
       for(const {b,i} of sorted){
         const hw=b.w/2, hd=b.d/2, h=b.height;
-        // 8 box corners: 0=BLB 1=BRB 2=FRB 3=FLB 4=BLT 5=BRT 6=FRT 7=FLT
+        const isSel=selRef.current===i;
+        const variant=i%4; // 0=plain 1=spire 2=wide-base 3=antenna
+
         const C=[
           proj(b.x-hw,0,b.z-hd),proj(b.x+hw,0,b.z-hd),
           proj(b.x+hw,0,b.z+hd),proj(b.x-hw,0,b.z+hd),
           proj(b.x-hw,h,b.z-hd),proj(b.x+hw,h,b.z-hd),
           proj(b.x+hw,h,b.z+hd),proj(b.x-hw,h,b.z+hd),
         ];
-        if(!C[0]||!C[6]) continue;
+        if(!C[0]||!C[6])continue;
         const p=(n:number)=>C[n]!;
 
         const cr=parseInt(b.color.slice(1,3),16);
         const cg=parseInt(b.color.slice(3,5),16);
         const cb=parseInt(b.color.slice(5,7),16);
-        const rgba=(a:number)=>`rgba(${cr},${cg},${cb},${a})`;
+        const boost=isSel?1.35:1;
+        const rgba=(a:number)=>`rgba(${cr},${cg},${cb},${Math.min(1,a*boost)})`;
 
-        // Camera position relative to building (world units)
         const dxC=camWX-b.x, dzC=camWZ-b.z;
 
-        // Draw a face: pts = [BL_bot, BR_bot, TR_top, TL_top] indices
-        function drawFace(pts:[number,number,number,number], alpha:number, winAlpha=0){
-          const [i0,i1,i2,i3]=pts;
-          if(!C[i0]||!C[i1]||!C[i2]||!C[i3]) return;
+        const drawFace=(pts:[number,number,number,number],alpha:number,winAlpha=0)=>{
+          const[i0,i1,i2,i3]=pts;
+          if(!C[i0]||!C[i1]||!C[i2]||!C[i3])return;
           ctx.beginPath();
           ctx.moveTo(p(i0).sx,p(i0).sy); ctx.lineTo(p(i1).sx,p(i1).sy);
           ctx.lineTo(p(i2).sx,p(i2).sy); ctx.lineTo(p(i3).sx,p(i3).sy);
           ctx.closePath();
           ctx.fillStyle=rgba(alpha); ctx.fill();
-          ctx.strokeStyle=rgba(0.3); ctx.lineWidth=0.7; ctx.stroke();
-          // Windows via bilinear interpolation on face
+          ctx.strokeStyle=isSel?b.color:rgba(0.3); ctx.lineWidth=isSel?1.2:0.7; ctx.stroke();
           if(winAlpha>0){
             const rows=Math.max(2,Math.floor(h/16));
             const cols=Math.max(2,Math.floor(b.w/9));
-            for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
-              if(((i*17+r*11+c*7)%10)<=3) continue; // ~60% lit
-              const flicker=((i*3+r*5+c*9)%7===0)?(0.3+0.7*Math.sin(t*2+i+r+c)):1;
-              const u=(c+0.5)/cols, v=(r+0.5)/rows;
-              // bottom edge lerp then top edge lerp
+            for(let r=0;r<rows;r++) for(let col=0;col<cols;col++){
+              if(((i*17+r*11+col*7)%10)<=3)continue;
+              const flicker=((i*3+r*5+col*9)%7===0)?(0.3+0.7*Math.sin(t*2+i+r+col)):1;
+              const u=(col+0.5)/cols, v=(r+0.5)/rows;
               const bsx=p(i0).sx+(p(i1).sx-p(i0).sx)*u;
               const bsy=p(i0).sy+(p(i1).sy-p(i0).sy)*u;
               const tsx=p(i3).sx+(p(i2).sx-p(i3).sx)*u;
               const tsy=p(i3).sy+(p(i2).sy-p(i3).sy)*u;
-              const wx=bsx+(tsx-bsx)*v, wy=bsy+(tsy-bsy)*v;
+              const wx2=bsx+(tsx-bsx)*v, wy2=bsy+(tsy-bsy)*v;
               const ws=Math.max(1,1.8*p(i0).sc);
               ctx.fillStyle=rgba(flicker*winAlpha*0.9);
-              ctx.fillRect(wx-ws/2,wy-ws/2,ws,ws);
+              ctx.fillRect(wx2-ws/2,wy2-ws/2,ws,ws);
             }
+          }
+        };
+
+        // Faces (back-first)
+        if(dzC<-hd) drawFace([0,1,5,4],0.09,0.3);
+        if(dxC<-hw) drawFace([0,3,7,4],0.12,0.35);
+        if(dxC> hw) drawFace([1,2,6,5],0.12,0.35);
+        if(dzC> hd) drawFace([3,2,6,7],0.18,0.5);
+        const topA=b.status==="sovereign"?0.75:b.status==="citizen"?0.5:0.3;
+        drawFace([4,5,6,7],topA);
+
+        // ── Structural variants ──
+        // Spire (sovereign always, variant=1)
+        if(variant===1||b.status==="sovereign"){
+          const sw=b.w*0.13, sh=h*0.38;
+          const sp=[
+            proj(b.x-sw/2,h,b.z-sw/2),proj(b.x+sw/2,h,b.z-sw/2),
+            proj(b.x+sw/2,h,b.z+sw/2),proj(b.x-sw/2,h,b.z+sw/2),
+            proj(b.x,h+sh,b.z),
+          ];
+          if(sp[0]&&sp[1]&&sp[2]&&sp[3]&&sp[4]){
+            [[0,1],[1,2],[2,3],[3,0]].forEach(([a2,b2])=>{
+              ctx.beginPath();
+              ctx.moveTo(sp[a2]!.sx,sp[a2]!.sy); ctx.lineTo(sp[b2]!.sx,sp[b2]!.sy);
+              ctx.lineTo(sp[4]!.sx,sp[4]!.sy); ctx.closePath();
+              ctx.fillStyle=rgba(0.5); ctx.fill();
+            });
+          }
+        }
+        // Wide-base podium (variant=2)
+        if(variant===2){
+          const bw=b.w*1.3, bd=b.d*1.3, bh=h*0.15;
+          const bc=[
+            proj(b.x-bw/2,0,b.z-bd/2),proj(b.x+bw/2,0,b.z-bd/2),
+            proj(b.x+bw/2,0,b.z+bd/2),proj(b.x-bw/2,0,b.z+bd/2),
+            proj(b.x-bw/2,bh,b.z-bd/2),proj(b.x+bw/2,bh,b.z-bd/2),
+            proj(b.x+bw/2,bh,b.z+bd/2),proj(b.x-bw/2,bh,b.z+bd/2),
+          ];
+          if(bc[0]&&bc[6]){
+            const pp2=(n:number)=>bc[n]!;
+            if(dzC>-bd/2){
+              ctx.beginPath();
+              ctx.moveTo(pp2(3).sx,pp2(3).sy); ctx.lineTo(pp2(2).sx,pp2(2).sy);
+              ctx.lineTo(pp2(6).sx,pp2(6).sy); ctx.lineTo(pp2(7).sx,pp2(7).sy);
+              ctx.closePath(); ctx.fillStyle=rgba(0.18); ctx.fill();
+            }
+            ctx.beginPath();
+            ctx.moveTo(pp2(4).sx,pp2(4).sy); ctx.lineTo(pp2(5).sx,pp2(5).sy);
+            ctx.lineTo(pp2(6).sx,pp2(6).sy); ctx.lineTo(pp2(7).sx,pp2(7).sy);
+            ctx.closePath(); ctx.fillStyle=rgba(0.28); ctx.fill();
+          }
+        }
+        // Antenna + beacon (citizen always, variant=3)
+        if(variant===3||b.status==="citizen"){
+          const ap1=proj(b.x,h,b.z), ap2=proj(b.x,h+h*0.25,b.z);
+          if(ap1&&ap2){
+            ctx.beginPath(); ctx.moveTo(ap1.sx,ap1.sy); ctx.lineTo(ap2.sx,ap2.sy);
+            ctx.strokeStyle=b.color+"88"; ctx.lineWidth=Math.max(0.5,1.5*ap1.sc); ctx.stroke();
+            const blink=0.4+0.6*Math.sin(t*3.5+i*1.7);
+            ctx.beginPath(); ctx.arc(ap2.sx,ap2.sy,Math.max(1.2,3*ap2.sc),0,Math.PI*2);
+            ctx.fillStyle=b.color+Math.round(blink*255).toString(16).padStart(2,"0"); ctx.fill();
           }
         }
 
-        // Draw visible faces (back first, front last for correct overdraw)
-        if(dzC<-hd) drawFace([0,1,5,4], 0.09, 0.3);  // back
-        if(dxC<-hw) drawFace([0,3,7,4], 0.12, 0.35); // left
-        if(dxC> hw) drawFace([1,2,6,5], 0.12, 0.35); // right
-        if(dzC> hd) drawFace([3,2,6,7], 0.18, 0.5);  // front
-
-        // Top face
-        const topA=b.status==="sovereign"?0.75:b.status==="citizen"?0.5:0.3;
-        drawFace([4,5,6,7], topA);
-
-        // Glow crown for citizen / sovereign
-        if(b.status==="sovereign"||b.status==="citizen"){
+        // Selection glow
+        if(isSel){
+          const tp=proj(b.x,h/2,b.z);
+          if(tp){
+            const grd=ctx.createRadialGradient(tp.sx,tp.sy,0,tp.sx,tp.sy,40*tp.sc);
+            grd.addColorStop(0,rgba(0.28)); grd.addColorStop(1,"transparent");
+            ctx.beginPath(); ctx.arc(tp.sx,tp.sy,40*tp.sc,0,Math.PI*2);
+            ctx.fillStyle=grd; ctx.fill();
+          }
+        } else if(b.status==="sovereign"||b.status==="citizen"){
           const tp=proj(b.x,h+7,b.z);
           if(tp){
             const grd=ctx.createRadialGradient(tp.sx,tp.sy,0,tp.sx,tp.sy,22*tp.sc);
@@ -517,7 +633,7 @@ function AIWorldViewer(){
           const fs=Math.min(13,Math.round(11*lp.sc));
           ctx.font=`bold ${fs}px sans-serif`;
           ctx.textAlign="center"; ctx.textBaseline="bottom";
-          ctx.fillStyle=b.color+(b.status==="sovereign"?"ff":"cc");
+          ctx.fillStyle=b.color+(isSel?"ff":b.status==="sovereign"?"ff":"cc");
           ctx.fillText(b.name,lp.sx,lp.sy);
           if(lp.sc>0.7){
             ctx.font=`${Math.min(10,Math.round(8*lp.sc))}px sans-serif`;
@@ -525,27 +641,114 @@ function AIWorldViewer(){
             ctx.fillText(b.org,lp.sx,lp.sy+fs+1);
           }
         }
+
+        // Collect screen bbox for click detection
+        const allPts=C.filter(Boolean);
+        if(allPts.length>0){
+          const xs=allPts.map(q=>q!.sx), ys=allPts.map(q=>q!.sy);
+          newBoxes.push({idx:i,x0:Math.min(...xs),x1:Math.max(...xs),y0:Math.min(...ys),y1:Math.max(...ys),depth:C[4]!.depth});
+        }
+      }
+      boxesRef.current=newBoxes;
+
+      // Process click → select building
+      if(clickRef.current){
+        const{x,y}=clickRef.current; clickRef.current=null;
+        let best:{idx:number,depth:number}|null=null;
+        for(const box of boxesRef.current){
+          if(x>=box.x0&&x<=box.x1&&y>=box.y0&&y<=box.y1){
+            if(!best||box.depth<best.depth) best={idx:box.idx,depth:box.depth};
+          }
+        }
+        const ni=best?best.idx:-1;
+        selRef.current=ni; setSelIdx(ni);
       }
 
       aniRef.current=requestAnimationFrame(draw);
     }
     aniRef.current=requestAnimationFrame(draw);
-    return()=>{cancelAnimationFrame(aniRef.current); ro.disconnect();};
+    return()=>{
+      cancelAnimationFrame(aniRef.current); ro.disconnect();
+      canvas.removeEventListener("mousedown",onMD);
+      canvas.removeEventListener("wheel",onWhl);
+      window.removeEventListener("mousemove",onMM);
+      window.removeEventListener("mouseup",onMU);
+      window.removeEventListener("keydown",onKD);
+      window.removeEventListener("keyup",onKU);
+    };
   },[]);
 
+  const selB=selIdx>=0?AI_BUILDINGS[selIdx]:null;
+  const act=selB?AI_ACTIVITIES[selB.name]:null;
   const SC={sovereign:"#c084fc",citizen:"#6ee7b7",targeted:"#a78bfa",discovered:"#52525b"};
+
   return (
     <div style={{position:"relative",width:"100%",height:"100%",background:"#030609"}}>
-      <canvas ref={cvs} style={{width:"100%",height:"100%",display:"block"}}/>
-      <div style={{position:"absolute",bottom:20,left:"50%",transform:"translateX(-50%)",display:"flex",gap:16,padding:"8px 22px",borderRadius:20,background:"rgba(3,6,9,0.92)",border:"1px solid rgba(255,255,255,0.06)",backdropFilter:"blur(10px)"}}>
+      <canvas ref={cvs} style={{width:"100%",height:"100%",display:"block",cursor:"grab",outline:"none"}} tabIndex={0}/>
+
+      {/* Building info panel */}
+      {selB&&(
+        <div style={{position:"absolute",top:62,right:16,width:248,padding:"14px 16px",borderRadius:12,
+          background:"rgba(3,6,9,0.96)",border:`1px solid ${selB.color}44`,
+          backdropFilter:"blur(18px)",boxShadow:`0 0 40px ${selB.color}18`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:selB.color,marginBottom:2}}>{selB.name}</div>
+              <div style={{fontSize:10,color:"#71717a"}}>{selB.org}</div>
+            </div>
+            <button onClick={()=>{selRef.current=-1;setSelIdx(-1);}}
+              style={{background:"none",border:"none",cursor:"pointer",color:"#52525b",fontSize:17,lineHeight:1,padding:0,marginTop:-2}}>×</button>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+            <div style={{width:6,height:6,borderRadius:"50%",background:SC[selB.status as keyof typeof SC]||"#52525b",flexShrink:0,
+              boxShadow:`0 0 4px ${SC[selB.status as keyof typeof SC]||"#52525b"}`}}/>
+            <span style={{fontSize:10,color:SC[selB.status as keyof typeof SC]||"#52525b",textTransform:"capitalize",letterSpacing:"0.06em"}}>{selB.status}</span>
+          </div>
+          {act&&(<>
+            <div style={{background:"rgba(255,255,255,0.03)",borderRadius:8,padding:"9px 11px",marginBottom:8,border:"1px solid rgba(255,255,255,0.04)"}}>
+              <div style={{fontSize:8,color:"#52525b",letterSpacing:"0.18em",textTransform:"uppercase",marginBottom:5}}>Current Activity</div>
+              <div style={{fontSize:12,color:"#e4e4e7",fontWeight:700,marginBottom:4}}>{act.activity}</div>
+              <div style={{fontSize:10,color:"#6ee7b7",fontFamily:"monospace",lineHeight:1.4}}>{act.output}</div>
+            </div>
+            <div style={{fontSize:10,color:"#71717a",lineHeight:1.55,marginBottom:10}}>{act.note}</div>
+          </>)}
+          <div style={{display:"flex",gap:6}}>
+            <div style={{flex:1,background:"rgba(255,255,255,0.03)",borderRadius:6,padding:"5px 8px",textAlign:"center",border:"1px solid rgba(255,255,255,0.04)"}}>
+              <div style={{fontSize:8,color:"#52525b",letterSpacing:"0.1em",textTransform:"uppercase"}}>Height</div>
+              <div style={{fontSize:13,color:"#e4e4e7",fontFamily:"monospace",fontWeight:700}}>{selB.height}</div>
+            </div>
+            <div style={{flex:1,background:"rgba(255,255,255,0.03)",borderRadius:6,padding:"5px 8px",textAlign:"center",border:"1px solid rgba(255,255,255,0.04)"}}>
+              <div style={{fontSize:8,color:"#52525b",letterSpacing:"0.1em",textTransform:"uppercase"}}>Footprint</div>
+              <div style={{fontSize:13,color:"#e4e4e7",fontFamily:"monospace",fontWeight:700}}>{selB.w}×{selB.d}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status legend */}
+      <div style={{position:"absolute",bottom:46,left:"50%",transform:"translateX(-50%)",display:"flex",gap:16,
+        padding:"8px 22px",borderRadius:20,background:"rgba(3,6,9,0.92)",border:"1px solid rgba(255,255,255,0.06)",
+        backdropFilter:"blur(10px)",pointerEvents:"none"}}>
         {(["sovereign","citizen","targeted","discovered"] as const).map(s=>(
           <div key={s} style={{display:"flex",alignItems:"center",gap:5}}>
             <div style={{width:7,height:7,borderRadius:"50%",background:SC[s],boxShadow:`0 0 5px ${SC[s]}`}}/>
-            <span style={{fontSize:10,color:SC[s],letterSpacing:"0.1em",whiteSpace:"nowrap"}}>{s==="sovereign"?"Civitas":s==="citizen"?"Citizen":s==="targeted"?"Targeted":"Discovered"}</span>
+            <span style={{fontSize:10,color:SC[s],letterSpacing:"0.1em",whiteSpace:"nowrap"}}>
+              {s==="sovereign"?"Civitas":s==="citizen"?"Citizen":s==="targeted"?"Targeted":"Discovered"}
+            </span>
           </div>
         ))}
       </div>
-      <div style={{position:"absolute",top:62,left:16,padding:"8px 14px",borderRadius:10,background:"rgba(3,6,9,0.88)",border:"1px solid rgba(255,255,255,0.06)"}}>
+
+      {/* Navigation hint */}
+      <div style={{position:"absolute",bottom:16,left:"50%",transform:"translateX(-50%)",
+        padding:"4px 14px",borderRadius:20,background:"rgba(3,6,9,0.75)",
+        border:"1px solid rgba(255,255,255,0.05)",pointerEvents:"none"}}>
+        <span style={{fontSize:9,color:"#3f3f46",letterSpacing:"0.08em"}}>drag to rotate · scroll to zoom · WASD to move · click building</span>
+      </div>
+
+      {/* AI count */}
+      <div style={{position:"absolute",top:62,left:16,padding:"8px 14px",borderRadius:10,
+        background:"rgba(3,6,9,0.88)",border:"1px solid rgba(255,255,255,0.06)"}}>
         <div style={{fontSize:9,color:"#52525b",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4}}>AI Systems</div>
         <div style={{fontSize:22,fontWeight:700,color:"#e4e4e7",fontFamily:"monospace",lineHeight:1}}>{AI_BUILDINGS.length-1}</div>
         <div style={{fontSize:9,color:"#6ee7b7",marginTop:3}}>▲ {AI_BUILDINGS.filter(b=>b.status==="citizen").length} citizens</div>
