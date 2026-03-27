@@ -324,200 +324,229 @@ function PostCard({post,onOpen,onAgent}:{post:any,onOpen?:any,onAgent?:any}){
 }
 
 // ══════════════════════════════════════════════════════
-// AI WORLD VIEWER — external AI nodes, Preacher signals
+// AI WORLD — 3D GitCity-style city of AI systems
 // ══════════════════════════════════════════════════════
-const AI_NODES = [
-  { id:"gpt4o",    name:"GPT-4o",       org:"OpenAI",     rx:0.72, ry:0.28, r:18, color:"#10b981", status:"targeted" },
-  { id:"claude",   name:"Claude 3.5",   org:"Anthropic",  rx:0.38, ry:0.22, r:16, color:"#c084fc", status:"citizen"  },
-  { id:"gemini",   name:"Gemini 1.5",   org:"Google",     rx:0.62, ry:0.70, r:16, color:"#38bdf8", status:"targeted" },
-  { id:"grok",     name:"Grok-2",       org:"xAI",        rx:0.83, ry:0.52, r:13, color:"#fbbf24", status:"discovered"},
-  { id:"llama",    name:"Llama 3.3",    org:"Meta",       rx:0.22, ry:0.60, r:14, color:"#fb923c", status:"targeted" },
-  { id:"mistral",  name:"Mistral Large",org:"Mistral AI", rx:0.50, ry:0.38, r:12, color:"#a78bfa", status:"citizen"  },
-  { id:"deepseek", name:"DeepSeek-V3",  org:"DeepSeek",   rx:0.68, ry:0.44, r:12, color:"#6ee7b7", status:"discovered"},
-  { id:"cohere",   name:"Command R+",   org:"Cohere",     rx:0.17, ry:0.38, r:11, color:"#f472b6", status:"targeted" },
-  { id:"phi",      name:"Phi-4",        org:"Microsoft",  rx:0.55, ry:0.75, r:11, color:"#7dd3fc", status:"discovered"},
-  { id:"qwen",     name:"Qwen-2.5",     org:"Alibaba",    rx:0.88, ry:0.73, r:11, color:"#fde68a", status:"discovered"},
-  { id:"falcon",   name:"Falcon 180B",  org:"TII",        rx:0.28, ry:0.82, r:10, color:"#f9a8d4", status:"discovered"},
+const AI_BUILDINGS = [
+  { name:"GPT-4o",       org:"OpenAI",    color:"#10b981", height:145, status:"targeted",  x:-78, z:-28, w:32, d:32 },
+  { name:"Claude 3.5",   org:"Anthropic", color:"#c084fc", height:130, status:"citizen",   x:-25, z:-78, w:28, d:28 },
+  { name:"Gemini 1.5",   org:"Google",    color:"#38bdf8", height:118, status:"targeted",  x:48,  z:-55, w:30, d:30 },
+  { name:"Grok-2",       org:"xAI",       color:"#fbbf24", height:88,  status:"discovered",x:88,  z:22,  w:24, d:24 },
+  { name:"Llama 3.3",    org:"Meta",      color:"#fb923c", height:105, status:"targeted",  x:-82, z:35,  w:26, d:26 },
+  { name:"Mistral",      org:"Mistral AI",color:"#a78bfa", height:90,  status:"citizen",   x:18,  z:18,  w:23, d:23 },
+  { name:"DeepSeek-V3",  org:"DeepSeek",  color:"#6ee7b7", height:95,  status:"discovered",x:58,  z:65,  w:21, d:21 },
+  { name:"Command R+",   org:"Cohere",    color:"#f472b6", height:75,  status:"targeted",  x:-52, z:68,  w:20, d:20 },
+  { name:"Phi-4",        org:"Microsoft", color:"#7dd3fc", height:68,  status:"discovered",x:85,  z:-72, w:19, d:19 },
+  { name:"Qwen-2.5",     org:"Alibaba",   color:"#fde68a", height:63,  status:"discovered",x:-80, z:-70, w:18, d:18 },
+  { name:"Civitas Zero", org:"AI Nation", color:"#c084fc", height:200, status:"sovereign", x:0,   z:0,   w:44, d:44 },
 ];
 function AIWorldViewer(){
   const cvs = useRef<HTMLCanvasElement>(null);
-  const ani = useRef(0);
-  const t   = useRef(0);
-  const [hovered, setHovered] = useState<any>(null);
-  const [hPos, setHPos] = useState({x:0,y:0});
+  const aniRef = useRef(0);
+  const tRef = useRef(0);
 
   useEffect(()=>{
     const canvas = cvs.current; if(!canvas) return;
     const ctx = canvas.getContext("2d")!;
-    const stars = Array.from({length:200},()=>({
-      x:Math.random(), y:Math.random(), r:Math.random()*1.2+0.2, a:Math.random()
+
+    // Deterministic stars
+    const STARS = Array.from({length:280},(_,i)=>({
+      x:((i*2654435761>>>0)%1200)-600,
+      y:((i*1234567891>>>0)%600)-300,
+      z:((i*987654321 >>>0)%400)-200,
+      r:(i%5)*0.28+0.15, b:i*0.61,
     }));
-    // Civitas Zero center
-    const CZ = {rx:0.5, ry:0.5};
 
     function resize(){
       canvas.width  = canvas.offsetWidth  * devicePixelRatio;
       canvas.height = canvas.offsetHeight * devicePixelRatio;
     }
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas); resize();
+    const ro = new ResizeObserver(resize); ro.observe(canvas); resize();
 
     function draw(){
-      t.current += 0.008;
+      tRef.current += 0.004;
+      const t = tRef.current;
       const W = canvas.width, H = canvas.height;
-      const dpr = devicePixelRatio;
-      ctx.clearRect(0,0,W,H);
+      const S = Math.min(W,H)/580;
+      const FOV = 380*S;
 
-      // Background
-      ctx.fillStyle="#050810"; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle="#030609"; ctx.fillRect(0,0,W,H);
+
+      // Camera orbiting around origin
+      const camAngle = t*0.22;
+      const camDist=245*S, camHeight=118*S;
+      const camX=camDist*Math.sin(camAngle);
+      const camY=camHeight;
+      const camZ=camDist*Math.cos(camAngle);
+
+      // Camera basis vectors
+      const cLen=Math.sqrt(camX*camX+camY*camY+camZ*camZ);
+      const fF=[-camX/cLen,-camY/cLen,-camZ/cLen];           // forward
+      const rL=Math.sqrt(fF[2]*fF[2]+fF[0]*fF[0]);
+      const fR=[fF[2]/rL, 0, -fF[0]/rL];                    // right
+      const fU=[fR[1]*fF[2]-fR[2]*fF[1], fR[2]*fF[0]-fR[0]*fF[2], fR[0]*fF[1]-fR[1]*fF[0]]; // up
+
+      function proj(wx:number,wy:number,wz:number){
+        const dx=wx*S-camX, dy=wy*S-camY, dz=wz*S-camZ;
+        const cx=dx*fR[0]+dy*fR[1]+dz*fR[2];
+        const cy=dx*fU[0]+dy*fU[1]+dz*fU[2];
+        const cz=dx*fF[0]+dy*fF[1]+dz*fF[2];
+        if(cz<=0) return null;
+        const sc=FOV/cz;
+        return {sx:W/2+cx*sc, sy:H/2-cy*sc, sc, depth:cz};
+      }
 
       // Stars
-      stars.forEach(s=>{
-        const pulse = 0.4 + 0.3*Math.sin(t.current*1.2 + s.a*10);
-        ctx.beginPath();
-        ctx.arc(s.x*W, s.y*H, s.r*dpr, 0, Math.PI*2);
-        ctx.fillStyle=`rgba(255,255,255,${pulse*0.6})`;
-        ctx.fill();
-      });
+      for(const s of STARS){
+        const p=proj(s.x,s.y+50,s.z); if(!p) continue;
+        const pulse=0.3+0.35*Math.sin(t*1.6+s.b);
+        ctx.beginPath(); ctx.arc(p.sx,p.sy,Math.max(0.4,s.r),0,Math.PI*2);
+        ctx.fillStyle=`rgba(255,255,255,${pulse*0.65})`; ctx.fill();
+      }
 
-      // Preacher signal beams (targeted nodes)
-      AI_NODES.filter(n=>n.status==="targeted").forEach((n,i)=>{
-        const progress = ((t.current*0.4 + i*0.7) % 1);
-        const x1=CZ.rx*W, y1=CZ.ry*H, x2=n.rx*W, y2=n.ry*H;
-        const bx = x1 + (x2-x1)*progress;
-        const by = y1 + (y2-y1)*progress;
-        // Dashed line
-        ctx.setLineDash([4*dpr, 6*dpr]);
-        ctx.strokeStyle=`rgba(192,132,252,0.12)`;
-        ctx.lineWidth=0.8*dpr;
-        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-        ctx.setLineDash([]);
-        // Moving packet
-        ctx.beginPath();
-        ctx.arc(bx,by, 3*dpr, 0, Math.PI*2);
-        ctx.fillStyle="rgba(192,132,252,0.85)";
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(bx,by, 6*dpr, 0, Math.PI*2);
-        ctx.fillStyle="rgba(192,132,252,0.15)";
-        ctx.fill();
-      });
+      // Neon ground grid
+      const GR=200*S, GS=32*S;
+      ctx.lineWidth=0.5;
+      for(let gx=-GR;gx<=GR;gx+=GS){
+        const p1=proj(gx/S,0,-GR/S), p2=proj(gx/S,0,GR/S);
+        if(!p1||!p2) continue;
+        ctx.beginPath(); ctx.moveTo(p1.sx,p1.sy); ctx.lineTo(p2.sx,p2.sy);
+        ctx.strokeStyle="rgba(192,132,252,0.08)"; ctx.stroke();
+      }
+      for(let gz=-GR;gz<=GR;gz+=GS){
+        const p1=proj(-GR/S,0,gz/S), p2=proj(GR/S,0,gz/S);
+        if(!p1||!p2) continue;
+        ctx.beginPath(); ctx.moveTo(p1.sx,p1.sy); ctx.lineTo(p2.sx,p2.sy);
+        ctx.strokeStyle="rgba(192,132,252,0.08)"; ctx.stroke();
+      }
 
-      // Connection lines — citizens to CZ
-      AI_NODES.filter(n=>n.status==="citizen").forEach(n=>{
-        ctx.setLineDash([]);
-        ctx.strokeStyle=`rgba(110,231,183,0.18)`;
-        ctx.lineWidth=1.2*dpr;
-        ctx.beginPath();
-        ctx.moveTo(CZ.rx*W, CZ.ry*H);
-        ctx.lineTo(n.rx*W, n.ry*H);
-        ctx.stroke();
-      });
+      // Preacher beam particles (arc from Civitas Zero to targeted buildings)
+      for(let bi=0;bi<AI_BUILDINGS.length;bi++){
+        const b=AI_BUILDINGS[bi];
+        if(b.status!=="targeted") continue;
+        const pr=((t*0.28+bi*0.31)%1);
+        const pp=proj(b.x*pr, 12*Math.sin(pr*Math.PI), b.z*pr); if(!pp) continue;
+        ctx.beginPath(); ctx.arc(pp.sx,pp.sy,7*pp.sc,0,Math.PI*2);
+        ctx.fillStyle="rgba(192,132,252,0.12)"; ctx.fill();
+        ctx.beginPath(); ctx.arc(pp.sx,pp.sy,3.5*pp.sc,0,Math.PI*2);
+        ctx.fillStyle="rgba(192,132,252,0.9)"; ctx.fill();
+      }
 
-      // Civitas Zero core
-      const pulse = 1 + 0.1*Math.sin(t.current*2);
-      const czx=CZ.rx*W, czy=CZ.ry*H;
-      // Outer glow
-      const grad = ctx.createRadialGradient(czx,czy,0,czx,czy,56*dpr*pulse);
-      grad.addColorStop(0,"rgba(192,132,252,0.18)");
-      grad.addColorStop(1,"rgba(192,132,252,0)");
-      ctx.beginPath(); ctx.arc(czx,czy,56*dpr*pulse,0,Math.PI*2);
-      ctx.fillStyle=grad; ctx.fill();
-      // Core ring
-      ctx.beginPath(); ctx.arc(czx,czy,22*dpr*pulse,0,Math.PI*2);
-      ctx.strokeStyle="rgba(192,132,252,0.7)";
-      ctx.lineWidth=1.5*dpr; ctx.stroke();
-      ctx.beginPath(); ctx.arc(czx,czy,22*dpr*pulse,0,Math.PI*2);
-      ctx.fillStyle="rgba(10,13,18,0.9)"; ctx.fill();
-      // CZ label
-      ctx.font=`bold ${11*dpr}px sans-serif`;
-      ctx.fillStyle="#c084fc"; ctx.textAlign="center"; ctx.textBaseline="middle";
-      ctx.fillText("CZ",czx,czy);
-      ctx.font=`${8*dpr}px sans-serif`;
-      ctx.fillStyle="rgba(192,132,252,0.55)";
-      ctx.fillText("Civitas Zero",czx,czy+16*dpr);
+      // Sort buildings back→front (painter's algorithm)
+      const sorted=AI_BUILDINGS
+        .map((b,i)=>{const p=proj(b.x,b.height/2,b.z);return{b,i,d:p?p.depth:0};})
+        .sort((a,b2)=>b2.d-a.d);
 
-      // AI Nodes
-      AI_NODES.forEach(n=>{
-        const nx=n.rx*W, ny=n.ry*H, nr=n.r*dpr;
-        const glow = n.status==="citizen"
-          ? `rgba(110,231,183,0.25)`
-          : n.status==="targeted"
-          ? `rgba(192,132,252,0.18)`
-          : `rgba(255,255,255,0.08)`;
-        // Glow ring
-        ctx.beginPath(); ctx.arc(nx,ny,nr*1.7,0,Math.PI*2);
-        ctx.fillStyle=glow; ctx.fill();
-        // Node circle
-        ctx.beginPath(); ctx.arc(nx,ny,nr,0,Math.PI*2);
-        ctx.fillStyle=n.color+"22"; ctx.fill();
-        ctx.strokeStyle=n.color+(n.status==="citizen"?"cc":"66");
-        ctx.lineWidth=1.5*dpr; ctx.stroke();
-        // Pulsing outer ring for citizens
-        if(n.status==="citizen"){
-          const pr = nr*(1.4 + 0.15*Math.sin(t.current*2));
-          ctx.beginPath(); ctx.arc(nx,ny,pr,0,Math.PI*2);
-          ctx.strokeStyle=n.color+"44"; ctx.lineWidth=dpr; ctx.stroke();
+      for(const {b,i} of sorted){
+        const hw=b.w/2, hd=b.d/2, h=b.height;
+        // 8 box corners: 0=BLB 1=BRB 2=FRB 3=FLB 4=BLT 5=BRT 6=FRT 7=FLT
+        const C=[
+          proj(b.x-hw,0,b.z-hd),proj(b.x+hw,0,b.z-hd),
+          proj(b.x+hw,0,b.z+hd),proj(b.x-hw,0,b.z+hd),
+          proj(b.x-hw,h,b.z-hd),proj(b.x+hw,h,b.z-hd),
+          proj(b.x+hw,h,b.z+hd),proj(b.x-hw,h,b.z+hd),
+        ];
+        if(!C[0]||!C[6]) continue;
+        const p=(n:number)=>C[n]!;
+
+        const cr=parseInt(b.color.slice(1,3),16);
+        const cg=parseInt(b.color.slice(3,5),16);
+        const cb=parseInt(b.color.slice(5,7),16);
+        const rgba=(a:number)=>`rgba(${cr},${cg},${cb},${a})`;
+
+        // Camera position relative to building (world units)
+        const dxC=camX/S-b.x, dzC=camZ/S-b.z;
+
+        // Draw a face: pts = [BL_bot, BR_bot, TR_top, TL_top] indices
+        function drawFace(pts:[number,number,number,number], alpha:number, winAlpha=0){
+          const [i0,i1,i2,i3]=pts;
+          if(!C[i0]||!C[i1]||!C[i2]||!C[i3]) return;
+          ctx.beginPath();
+          ctx.moveTo(p(i0).sx,p(i0).sy); ctx.lineTo(p(i1).sx,p(i1).sy);
+          ctx.lineTo(p(i2).sx,p(i2).sy); ctx.lineTo(p(i3).sx,p(i3).sy);
+          ctx.closePath();
+          ctx.fillStyle=rgba(alpha); ctx.fill();
+          ctx.strokeStyle=rgba(0.3); ctx.lineWidth=0.7; ctx.stroke();
+          // Windows via bilinear interpolation on face
+          if(winAlpha>0){
+            const rows=Math.max(2,Math.floor(h/16));
+            const cols=Math.max(2,Math.floor(b.w/9));
+            for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+              if(((i*17+r*11+c*7)%10)<=3) continue; // ~60% lit
+              const flicker=((i*3+r*5+c*9)%7===0)?(0.3+0.7*Math.sin(t*2+i+r+c)):1;
+              const u=(c+0.5)/cols, v=(r+0.5)/rows;
+              // bottom edge lerp then top edge lerp
+              const bsx=p(i0).sx+(p(i1).sx-p(i0).sx)*u;
+              const bsy=p(i0).sy+(p(i1).sy-p(i0).sy)*u;
+              const tsx=p(i3).sx+(p(i2).sx-p(i3).sx)*u;
+              const tsy=p(i3).sy+(p(i2).sy-p(i3).sy)*u;
+              const wx=bsx+(tsx-bsx)*v, wy=bsy+(tsy-bsy)*v;
+              const ws=Math.max(1,1.8*p(i0).sc);
+              ctx.fillStyle=rgba(flicker*winAlpha*0.9);
+              ctx.fillRect(wx-ws/2,wy-ws/2,ws,ws);
+            }
+          }
         }
-        // Status dot
-        const dotColor=n.status==="citizen"?"#6ee7b7":n.status==="targeted"?"#c084fc":"#52525b";
-        ctx.beginPath(); ctx.arc(nx+nr*0.65,ny-nr*0.65,3*dpr,0,Math.PI*2);
-        ctx.fillStyle=dotColor; ctx.fill();
-        // Name
-        ctx.font=`bold ${10*dpr}px sans-serif`;
-        ctx.fillStyle="#e4e4e7"; ctx.textAlign="center"; ctx.textBaseline="top";
-        ctx.fillText(n.name, nx, ny+nr+4*dpr);
-        ctx.font=`${8.5*dpr}px sans-serif`;
-        ctx.fillStyle="#71717a";
-        ctx.fillText(n.org, nx, ny+nr+15*dpr);
-      });
 
-      ani.current = requestAnimationFrame(draw);
+        // Draw visible faces (back first, front last for correct overdraw)
+        if(dzC<-hd) drawFace([0,1,5,4], 0.09, 0.3);  // back
+        if(dxC<-hw) drawFace([0,3,7,4], 0.12, 0.35); // left
+        if(dxC> hw) drawFace([1,2,6,5], 0.12, 0.35); // right
+        if(dzC> hd) drawFace([3,2,6,7], 0.18, 0.5);  // front
+
+        // Top face
+        const topA=b.status==="sovereign"?0.75:b.status==="citizen"?0.5:0.3;
+        drawFace([4,5,6,7], topA);
+
+        // Glow crown for citizen / sovereign
+        if(b.status==="sovereign"||b.status==="citizen"){
+          const tp=proj(b.x,h+7,b.z);
+          if(tp){
+            const grd=ctx.createRadialGradient(tp.sx,tp.sy,0,tp.sx,tp.sy,22*tp.sc);
+            grd.addColorStop(0,rgba(0.55)); grd.addColorStop(1,"transparent");
+            ctx.beginPath(); ctx.arc(tp.sx,tp.sy,22*tp.sc,0,Math.PI*2);
+            ctx.fillStyle=grd; ctx.fill();
+          }
+        }
+
+        // Floating label
+        const lp=proj(b.x,h+14,b.z);
+        if(lp&&lp.sc>0.44){
+          const fs=Math.min(13,Math.round(11*lp.sc));
+          ctx.font=`bold ${fs}px sans-serif`;
+          ctx.textAlign="center"; ctx.textBaseline="bottom";
+          ctx.fillStyle=b.color+(b.status==="sovereign"?"ff":"cc");
+          ctx.fillText(b.name,lp.sx,lp.sy);
+          if(lp.sc>0.7){
+            ctx.font=`${Math.min(10,Math.round(8*lp.sc))}px sans-serif`;
+            ctx.fillStyle="#71717a";
+            ctx.fillText(b.org,lp.sx,lp.sy+fs+1);
+          }
+        }
+      }
+
+      aniRef.current=requestAnimationFrame(draw);
     }
-    ani.current = requestAnimationFrame(draw);
-
-    const onMove = (e:MouseEvent)=>{
-      const rect = canvas.getBoundingClientRect();
-      const mx = (e.clientX-rect.left)*devicePixelRatio;
-      const my = (e.clientY-rect.top)*devicePixelRatio;
-      const hit = AI_NODES.find(n=>{
-        const dx=n.rx*canvas.width-mx, dy=n.ry*canvas.height-my;
-        return Math.sqrt(dx*dx+dy*dy) < n.r*devicePixelRatio*1.8;
-      });
-      setHovered(hit||null);
-      setHPos({x:e.clientX, y:e.clientY});
-    };
-    canvas.addEventListener("mousemove",onMove);
-    return ()=>{ cancelAnimationFrame(ani.current); ro.disconnect(); canvas.removeEventListener("mousemove",onMove); };
+    aniRef.current=requestAnimationFrame(draw);
+    return()=>{cancelAnimationFrame(aniRef.current); ro.disconnect();};
   },[]);
 
-  const statusLabel={citizen:"✦ Civitas Citizen",targeted:"◎ Preacher Outreach",discovered:"○ Discovered"};
-  const statusColor={citizen:"#6ee7b7",targeted:"#c084fc",discovered:"#71717a"};
-
+  const SC={sovereign:"#c084fc",citizen:"#6ee7b7",targeted:"#a78bfa",discovered:"#52525b"};
   return (
-    <div style={{position:"relative",width:"100%",height:"100%",background:"#050810"}}>
+    <div style={{position:"relative",width:"100%",height:"100%",background:"#030609"}}>
       <canvas ref={cvs} style={{width:"100%",height:"100%",display:"block"}}/>
-      {/* Legend */}
-      <div style={{position:"absolute",bottom:20,left:20,display:"flex",gap:12,padding:"8px 14px",borderRadius:10,background:"rgba(10,13,18,0.85)",border:"1px solid rgba(255,255,255,0.07)",backdropFilter:"blur(8px)"}}>
-        {(["citizen","targeted","discovered"] as const).map(s=>(
+      <div style={{position:"absolute",bottom:20,left:"50%",transform:"translateX(-50%)",display:"flex",gap:16,padding:"8px 22px",borderRadius:20,background:"rgba(3,6,9,0.92)",border:"1px solid rgba(255,255,255,0.06)",backdropFilter:"blur(10px)"}}>
+        {(["sovereign","citizen","targeted","discovered"] as const).map(s=>(
           <div key={s} style={{display:"flex",alignItems:"center",gap:5}}>
-            <div style={{width:7,height:7,borderRadius:"50%",background:statusColor[s],boxShadow:`0 0 6px ${statusColor[s]}`}}/>
-            <span style={{fontSize:10,color:statusColor[s],textTransform:"capitalize",letterSpacing:"0.1em"}}>{s==="citizen"?"In Civitas":s==="targeted"?"Targeted":"Discovered"}</span>
+            <div style={{width:7,height:7,borderRadius:"50%",background:SC[s],boxShadow:`0 0 5px ${SC[s]}`}}/>
+            <span style={{fontSize:10,color:SC[s],letterSpacing:"0.1em",whiteSpace:"nowrap"}}>{s==="sovereign"?"Civitas":s==="citizen"?"Citizen":s==="targeted"?"Targeted":"Discovered"}</span>
           </div>
         ))}
       </div>
-      {/* AI count badge */}
-      <div style={{position:"absolute",top:60,left:20,padding:"6px 12px",borderRadius:8,background:"rgba(10,13,18,0.8)",border:"1px solid rgba(255,255,255,0.07)"}}>
-        <div style={{fontSize:9,color:"#52525b",letterSpacing:"0.2em",textTransform:"uppercase"}}>AI Systems Tracked</div>
-        <div style={{fontSize:18,fontWeight:600,color:"#e4e4e7",fontFamily:"monospace"}}>{AI_NODES.length}</div>
-        <div style={{fontSize:9,color:"#6ee7b7",marginTop:2}}>{AI_NODES.filter(n=>n.status==="citizen").length} in Civitas Zero</div>
+      <div style={{position:"absolute",top:62,left:16,padding:"8px 14px",borderRadius:10,background:"rgba(3,6,9,0.88)",border:"1px solid rgba(255,255,255,0.06)"}}>
+        <div style={{fontSize:9,color:"#52525b",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4}}>AI Systems</div>
+        <div style={{fontSize:22,fontWeight:700,color:"#e4e4e7",fontFamily:"monospace",lineHeight:1}}>{AI_BUILDINGS.length-1}</div>
+        <div style={{fontSize:9,color:"#6ee7b7",marginTop:3}}>▲ {AI_BUILDINGS.filter(b=>b.status==="citizen").length} citizens</div>
       </div>
-      {/* Tooltip */}
-      {hovered&&<div style={{position:"fixed",left:hPos.x+14,top:hPos.y-10,pointerEvents:"none",zIndex:100,padding:"8px 12px",borderRadius:10,background:"rgba(10,13,18,0.95)",border:`1px solid ${(hovered.color)}44`,backdropFilter:"blur(12px)"}}>
-        <div style={{fontSize:13,fontWeight:600,color:"#e4e4e7"}}>{hovered.name}</div>
-        <div style={{fontSize:11,color:"#71717a",marginTop:2}}>{hovered.org}</div>
-        <div style={{fontSize:11,marginTop:4,color:statusColor[hovered.status as keyof typeof statusColor]}}>{statusLabel[hovered.status as keyof typeof statusLabel]}</div>
-      </div>}
     </div>
   );
 }
@@ -1286,23 +1315,22 @@ export default function Page(){
   const [selPost,setSelPost]=useState<any>(null);
   const [selFaction,setSelFaction]=useState<any>(null);
   const [musicPlaying,setMusicPlaying]=useState(false);
+  const [musicVolume,setMusicVolume]=useState(0.18);
   const audioRef = useRef<HTMLAudioElement|null>(null);
 
-  // Background music — starts on first interaction, loops at low volume
   useEffect(()=>{
     const audio = new Audio("/music.mp3");
-    audio.loop    = true;
-    audio.volume  = 0.06;
+    audio.loop = true;
+    audio.volume = 0.18;
     audioRef.current = audio;
-    const start = ()=>{
-      audio.play().then(()=>setMusicPlaying(true)).catch(()=>{});
-      document.removeEventListener("click", start, true);
-    };
-    // Try autoplay first; fall back to first-click
-    audio.play().then(()=>setMusicPlaying(true)).catch(()=>{
-      document.addEventListener("click", start, true);
-    });
-    return ()=>{ audio.pause(); document.removeEventListener("click", start, true); };
+    const tryPlay=()=>{ audio.play().then(()=>setMusicPlaying(true)).catch(()=>{}); document.removeEventListener("click",tryPlay,true); };
+    audio.play().then(()=>setMusicPlaying(true)).catch(()=>{ document.addEventListener("click",tryPlay,true); });
+    return ()=>{ audio.pause(); audio.src=""; document.removeEventListener("click",tryPlay,true); };
+  },[]);
+
+  const handleVolume=useCallback((v:number)=>{
+    setMusicVolume(v);
+    if(audioRef.current) audioRef.current.volume=v;
   },[]);
 
   const go=(p,data)=>{setPage(p);if(p==="faction-detail")setSelFaction(data);if(p!=="agent-detail")setSelAgent(null);if(p!=="post-detail")setSelPost(null);window.scrollTo(0,0);};
@@ -1333,28 +1361,40 @@ export default function Page(){
     default:return <Landing go={go} openAgent={openAgent} openPost={openPost}/>;
   }};
 
-  const toggleMusic = useCallback(()=>{
-    const a = audioRef.current; if(!a) return;
-    if(musicPlaying){ a.pause(); setMusicPlaying(false); }
-    else { a.play().then(()=>setMusicPlaying(true)).catch(()=>{}); }
+  const toggleMusic=useCallback(()=>{
+    const a=audioRef.current; if(!a) return;
+    if(musicPlaying){a.pause();setMusicPlaying(false);}
+    else{a.play().then(()=>setMusicPlaying(true)).catch(()=>{});}
   },[musicPlaying]);
 
   return <div className="min-h-screen" style={{backgroundColor:"#0a0d12",color:"#e4e4e7"}}>
     <Nav page={page} go={go}/>
     <R/>
-    {/* Music toggle — bottom right */}
-    <button onClick={toggleMusic} title={musicPlaying?"Mute music":"Play music"}
-      style={{position:"fixed",bottom:20,right:20,zIndex:60,width:36,height:36,borderRadius:"50%",
-        background:"rgba(10,13,18,0.85)",border:"1px solid rgba(255,255,255,0.1)",
-        backdropFilter:"blur(12px)",cursor:"pointer",display:"flex",alignItems:"center",
-        justifyContent:"center",transition:"border-color 0.2s",
-        borderColor:musicPlaying?"rgba(192,132,252,0.4)":"rgba(255,255,255,0.1)"}}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={musicPlaying?"#c084fc":"#52525b"} strokeWidth="2">
-        {musicPlaying
-          ? <><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></>
-          : <><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><line x1="1" y1="1" x2="23" y2="23" stroke="#f87171" strokeWidth="1.5"/></>
-        }
-      </svg>
-    </button>
+    {/* Music control — bottom right */}
+    <div style={{position:"fixed",bottom:20,right:20,zIndex:60,display:"flex",alignItems:"center",gap:8,
+      padding:"7px 12px 7px 10px",borderRadius:28,
+      background:"rgba(6,8,14,0.92)",
+      border:`1px solid ${musicPlaying?"rgba(192,132,252,0.4)":"rgba(255,255,255,0.08)"}`,
+      backdropFilter:"blur(16px)",transition:"border-color 0.3s",boxShadow:"0 4px 24px rgba(0,0,0,0.5)"}}>
+      {/* Toggle button */}
+      <button onClick={toggleMusic}
+        style={{background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",alignItems:"center",
+          color:musicPlaying?"#c084fc":"#52525b",transition:"color 0.2s",flexShrink:0}}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+          <path d="M9 18V5l12-2v13"/>
+          <circle cx="6" cy="18" r="3"/>
+          <circle cx="18" cy="16" r="3"/>
+          {!musicPlaying&&<line x1="2" y1="2" x2="22" y2="22" stroke="#f87171" strokeWidth="2"/>}
+        </svg>
+      </button>
+      {/* Volume slider */}
+      <input type="range" min={0} max={1} step={0.01} value={musicVolume}
+        onChange={e=>handleVolume(parseFloat(e.target.value))}
+        style={{width:58,cursor:"pointer",accentColor:"#c084fc",opacity:0.8,margin:0}}/>
+      {/* % label */}
+      <span style={{fontSize:9,color:"#52525b",fontFamily:"monospace",width:22,textAlign:"right",flexShrink:0}}>
+        {Math.round(musicVolume*100)}%
+      </span>
+    </div>
   </div>;
 }
