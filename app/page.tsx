@@ -401,7 +401,7 @@ function AIWorldViewer(){
   const boxesRef = useRef<Array<{idx:number,x0:number,x1:number,y0:number,y1:number,depth:number}>>([]);
   const selRef = useRef(-1);
   const svRef = useRef({active:false,pitch:0.05});
-  const walkersRef = useRef<Array<{x:number,z:number,tx:number,tz:number,col:string,id:string,spd:number,isVeh:boolean,lane?:string,lanePos?:number}>>([]);
+  const globesRef = useRef<Array<{x:number,z:number,tx:number,tz:number,gy:number,id:string,col:string,rotOff:number,phase:number}>>([]);
   const [selIdx, setSelIdx] = useState(-1);
   const [svMode, setSvMode] = useState(false);
 
@@ -410,32 +410,21 @@ function AIWorldViewer(){
     const ctx = canvas.getContext("2d")!;
     const PR = devicePixelRatio;
 
-    // Init walkers once
-    const WC=["#93c5fd","#86efac","#fca5a5","#c4b5fd","#fde68a","#fdba74","#67e8f9","#f9a8d4","#a5f3fc","#bbf7d0","#fecdd3","#ddd6fe"];
-    const RL=[-97,-32,32,97];
-    if(walkersRef.current.length===0){
-      const vehCfg=[
-        {lane:'z',lanePos:-97},{lane:'z',lanePos:-32},{lane:'z',lanePos:32},
-        {lane:'x',lanePos:-32},{lane:'x',lanePos:32},
+    // Init globe observers once
+    const GC=["#93c5fd","#c084fc","#6ee7b7","#fbbf24","#f472b6","#38bdf8","#fb923c","#a78bfa"];
+    if(globesRef.current.length===0){
+      const startPos=[
+        {x:-65,z:-65},{x:65,z:-65},{x:-65,z:65},{x:65,z:65},
+        {x:0,z:-110},{x:0,z:110},{x:-110,z:0},{x:110,z:0},
       ];
-      walkersRef.current=Array.from({length:12},(_,i)=>{
-        if(i<5){
-          const vc=vehCfg[i];
-          return{
-            x:vc.lane==='z'?vc.lanePos:(Math.random()-0.5)*160,
-            z:vc.lane==='z'?(Math.random()-0.5)*160:vc.lanePos,
-            tx:vc.lane==='z'?vc.lanePos:(Math.random()>0.5?130:-130),
-            tz:vc.lane==='z'?(Math.random()>0.5?130:-130):vc.lanePos,
-            col:WC[i],id:`OBS-${i+1}`,spd:0.9,isVeh:true,
-            lane:vc.lane,lanePos:vc.lanePos,
-          };
-        }
-        return{
-          x:RL[i%4]+(Math.random()-0.5)*4,z:(Math.random()-0.5)*180,
-          tx:RL[(i+2)%4],tz:(Math.random()-0.5)*180,
-          col:WC[i],id:`OBS-${i+1}`,spd:0.28,isVeh:false,
-        };
-      });
+      globesRef.current=startPos.map((p,i)=>({
+        x:p.x,z:p.z,
+        tx:(Math.random()-0.5)*180,tz:(Math.random()-0.5)*180,
+        gy:12+Math.random()*20,
+        id:`OBS-${i+1}`,col:GC[i],
+        rotOff:Math.random()*Math.PI*2,
+        phase:Math.random()*Math.PI*2,
+      }));
     }
 
     const STARS=Array.from({length:280},(_,i)=>({
@@ -607,93 +596,56 @@ function AIWorldViewer(){
         ctx.fillStyle="rgba(74,222,128,0.42)";ctx.fill();
       }
 
-      // ── Update & render walkers ──
-      for(const w of walkersRef.current){
-        if(w.isVeh && w.lane){
-          // Lane-constrained vehicle movement
-          if(w.lane==='z'){
-            w.x=w.lanePos; // snap to lane X
-            const dz2=w.tz-w.z;
-            if(Math.abs(dz2)<5){w.tz=(w.tz>0?-130:130);}
-            else{
-              const nearInter=RL2.some(r=>Math.abs(w.z-r)<18);
-              w.z+=Math.sign(dz2)*w.spd*(nearInter?0.28:1);
-            }
-          } else {
-            w.z=w.lanePos; // snap to lane Z
-            const dx2=w.tx-w.x;
-            if(Math.abs(dx2)<5){w.tx=(w.tx>0?-130:130);}
-            else{
-              const nearInter=RL2.some(r=>Math.abs(w.x-r)<18);
-              w.x+=Math.sign(dx2)*w.spd*(nearInter?0.28:1);
-            }
-          }
-        } else {
-        const dx=w.tx-w.x,dz=w.tz-w.z,dist=Math.sqrt(dx*dx+dz*dz);
-        if(dist<6){
-          // Pick new target on a road
-          w.tx=RL2[Math.floor(Math.random()*4)];
-          w.tz=(Math.random()-0.5)*180;
-          // Occasionally let pedestrians go off-road slightly
-          if(!w.isVeh){w.tx+=(Math.random()-0.5)*10;w.tz+=(Math.random()-0.5)*10;}
-        } else {
-          w.x+=(dx/dist)*w.spd;
-          w.z+=(dz/dist)*w.spd;
-        }
-        }
-        const wp=proj(w.x,w.isVeh?1.5:1.0,w.z);if(!wp)continue;
-        const cr3=parseInt(w.col.slice(1,3),16),cg3=parseInt(w.col.slice(3,5),16),cb3=parseInt(w.col.slice(5,7),16);
-        if(w.isVeh){
-          // Small car box
-          const fw=4,sd=2.2,ch=1.8;
-          const ang=Math.atan2(w.tx-w.x,w.tz-w.z);
-          const cosAng=Math.cos(ang),sinAng=Math.sin(ang);
-          const VC=[
-            proj(w.x-sinAng*sd-cosAng*fw,0,w.z-cosAng*sd+sinAng*fw),
-            proj(w.x+sinAng*sd-cosAng*fw,0,w.z+cosAng*sd+sinAng*fw),
-            proj(w.x+sinAng*sd+cosAng*fw,0,w.z+cosAng*sd-sinAng*fw),
-            proj(w.x-sinAng*sd+cosAng*fw,0,w.z-cosAng*sd-sinAng*fw),
-            proj(w.x-sinAng*sd-cosAng*fw,ch,w.z-cosAng*sd+sinAng*fw),
-            proj(w.x+sinAng*sd-cosAng*fw,ch,w.z+cosAng*sd+sinAng*fw),
-            proj(w.x+sinAng*sd+cosAng*fw,ch,w.z+cosAng*sd-sinAng*fw),
-            proj(w.x-sinAng*sd+cosAng*fw,ch,w.z-cosAng*sd-sinAng*fw),
-          ];
-          if(VC[4]&&VC[6]){
-            const vp=(n:number)=>VC[n]!;
-            const vRgba=(a:number)=>`rgba(${cr3},${cg3},${cb3},${a})`;
-            // Top face
-            ctx.beginPath();ctx.moveTo(vp(4).sx,vp(4).sy);ctx.lineTo(vp(5).sx,vp(5).sy);ctx.lineTo(vp(6).sx,vp(6).sy);ctx.lineTo(vp(7).sx,vp(7).sy);ctx.closePath();ctx.fillStyle=vRgba(0.9);ctx.fill();
-            // Side faces
-            [[0,3,7,4],[1,2,6,5],[0,1,5,4],[2,3,7,6]].forEach(([a,b2,c2,d2])=>{
-              if(!VC[a]||!VC[b2]||!VC[c2]||!VC[d2])return;
-              ctx.beginPath();ctx.moveTo(vp(a).sx,vp(a).sy);ctx.lineTo(vp(b2).sx,vp(b2).sy);ctx.lineTo(vp(c2).sx,vp(c2).sy);ctx.lineTo(vp(d2).sx,vp(d2).sy);ctx.closePath();ctx.fillStyle=vRgba(0.6);ctx.fill();
-            });
-            // Headlights
-            const hl=proj(w.x+sinAng*sd*0.5+cosAng*fw*0.92,ch*0.7,w.z+cosAng*sd*0.5-sinAng*fw*0.92);
-            const hl2=proj(w.x-sinAng*sd*0.5+cosAng*fw*0.92,ch*0.7,w.z-cosAng*sd*0.5-sinAng*fw*0.92);
-            [hl,hl2].forEach(h=>{if(!h)return;ctx.beginPath();ctx.arc(h.sx,h.sy,Math.max(0.7,1.5*h.sc),0,Math.PI*2);ctx.fillStyle="#fefce8";ctx.fill();});
-          }
-        } else {
-          // Pedestrian: circle body + dot head
-          const step=Math.sin(t*8+parseInt(w.id.slice(4))*1.3);
-          ctx.beginPath();ctx.arc(wp.sx,wp.sy,Math.max(1.5,3.5*wp.sc),0,Math.PI*2);
-          ctx.fillStyle=`rgba(${cr3},${cg3},${cb3},0.85)`;ctx.fill();
-          // Shadow
-          ctx.beginPath();ctx.arc(wp.sx+1*wp.sc,wp.sy+1*wp.sc,Math.max(1,3*wp.sc),0,Math.PI*2);
-          ctx.fillStyle="rgba(0,0,0,0.2)";ctx.fill();
-          // Walking bob
-          if(wp.sc>0.6){
-            const headY=wp.sy-5*wp.sc+step*0.5*wp.sc;
-            ctx.beginPath();ctx.arc(wp.sx,headY,Math.max(1,2*wp.sc),0,Math.PI*2);
-            ctx.fillStyle=`rgba(${cr3},${cg3},${cb3},0.7)`;ctx.fill();
-          }
-        }
-        // Label when close
-        if(wp.sc>1.1){
-          ctx.font=`bold ${Math.max(6,Math.round(6.5*wp.sc))}px monospace`;
+      // ── Update & render globe observers ──
+      for(const g of globesRef.current){
+        // Drift toward target
+        const gdx=g.tx-g.x,gdz=g.tz-g.z,gdist=Math.sqrt(gdx*gdx+gdz*gdz);
+        if(gdist<8){g.tx=(Math.random()-0.5)*200;g.tz=(Math.random()-0.5)*200;}
+        else{g.x+=gdx/gdist*0.18;g.z+=gdz/gdist*0.18;}
+        // Bob height
+        const gy=g.gy+Math.sin(t*0.9+g.phase)*4;
+        const gp=proj(g.x,gy,g.z);if(!gp)continue;
+
+        const r=Math.max(5,14*gp.sc);
+        const cr4=parseInt(g.col.slice(1,3),16),cg4=parseInt(g.col.slice(3,5),16),cb4=parseInt(g.col.slice(5,7),16);
+        const gc=(a:number)=>`rgba(${cr4},${cg4},${cb4},${a})`;
+
+        // Atmosphere glow
+        const atm=ctx.createRadialGradient(gp.sx,gp.sy,r*0.4,gp.sx,gp.sy,r*2.2);
+        atm.addColorStop(0,gc(0.18));atm.addColorStop(1,"transparent");
+        ctx.beginPath();ctx.arc(gp.sx,gp.sy,r*2.2,0,Math.PI*2);ctx.fillStyle=atm;ctx.fill();
+
+        // Globe body (translucent fill + bright ring)
+        ctx.beginPath();ctx.arc(gp.sx,gp.sy,r,0,Math.PI*2);
+        ctx.fillStyle=gc(0.12);ctx.fill();
+        ctx.strokeStyle=gc(0.9);ctx.lineWidth=Math.max(0.8,1.4*gp.sc);ctx.stroke();
+
+        // Latitude rings (2 horizontal ellipses in screen space)
+        ctx.save();ctx.beginPath();ctx.ellipse(gp.sx,gp.sy-r*0.45,r*0.88,r*0.22,0,0,Math.PI*2);
+        ctx.strokeStyle=gc(0.45);ctx.lineWidth=Math.max(0.4,0.8*gp.sc);ctx.stroke();
+        ctx.beginPath();ctx.ellipse(gp.sx,gp.sy+r*0.45,r*0.88,r*0.22,0,0,Math.PI*2);
+        ctx.stroke();ctx.restore();
+
+        // Rotating meridian (vertical ellipse, spins over time)
+        const mAng=t*0.7+g.rotOff;
+        const mRx=r*Math.abs(Math.cos(mAng));
+        ctx.save();ctx.beginPath();ctx.ellipse(gp.sx,gp.sy,Math.max(0.5,mRx),r,0,0,Math.PI*2);
+        ctx.strokeStyle=gc(0.55);ctx.lineWidth=Math.max(0.4,0.7*gp.sc);ctx.stroke();ctx.restore();
+
+        // Equator line
+        ctx.beginPath();ctx.ellipse(gp.sx,gp.sy,r,r*0.18,0,0,Math.PI*2);
+        ctx.strokeStyle=gc(0.35);ctx.lineWidth=Math.max(0.4,0.8*gp.sc);ctx.stroke();
+
+        // Pole dots
+        ctx.beginPath();ctx.arc(gp.sx,gp.sy-r,Math.max(1,1.8*gp.sc),0,Math.PI*2);ctx.fillStyle=gc(0.8);ctx.fill();
+        ctx.beginPath();ctx.arc(gp.sx,gp.sy+r,Math.max(1,1.8*gp.sc),0,Math.PI*2);ctx.fillStyle=gc(0.5);ctx.fill();
+
+        // Label
+        if(gp.sc>0.5){
+          ctx.font=`bold ${Math.max(7,Math.round(7*gp.sc))}px monospace`;
           ctx.textAlign="center";ctx.textBaseline="bottom";
-          ctx.fillStyle=w.col+"bb";
-          ctx.fillText(w.id,wp.sx,wp.sy-(w.isVeh?5:7)*wp.sc);
+          ctx.fillStyle=g.col+"cc";
+          ctx.fillText(g.id,gp.sx,gp.sy-r-4*gp.sc);
         }
       }
 
