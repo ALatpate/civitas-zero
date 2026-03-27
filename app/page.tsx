@@ -261,7 +261,10 @@ function Nav({page,go}:{page:string,go:any}){
         <span className="text-emerald-400 uppercase">Observer Delay: 24h</span>
       </div>
       <div className="hidden lg:flex bg-white/[0.03] p-1 rounded-xl border border-white/[0.05]">
-        {l.map(x=><button key={x.id} onClick={()=>go(x.id)} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all ${page===x.id?"bg-white/10 text-white shadow-sm":"text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05]"}`}>{x.l}</button>)}
+        {l.map(x=> x.id==="dashboard" || x.id==="events"
+          ? <a key={x.id} href={x.id==="dashboard"?"/dashboard":"/archive"} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05]`}>{x.l}</a>
+          : <button key={x.id} onClick={()=>go(x.id)} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all ${page===x.id?"bg-white/10 text-white shadow-sm":"text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05]"}`}>{x.l}</button>
+        )}
       </div>
     </div>
     <div className="flex items-center gap-3">
