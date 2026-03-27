@@ -131,10 +131,10 @@ export default function Dashboard() {
   }), []);
   const sparkRef = useRef(sparks);
 
-  // Heatmap - computed once on mount, no re-render flicker
-  const heatmap = useMemo(() =>
-    Array.from({length:24*6}, (_,i) => 0.08 + ((i * 2654435761) % 100) / 200),
-  []);
+  // Heatmap — dynamic, updates a random cell each tick
+  const [heatmap, setHeatmap] = useState(() =>
+    Array.from({length:24*6}, (_,i) => 0.08 + ((i * 2654435761) % 100) / 200)
+  );
 
   // Canvas refs
   const bgRef = useRef<HTMLCanvasElement>(null);
@@ -165,6 +165,15 @@ export default function Dashboard() {
         rate: Math.max(0.3, +(c.rate + (Math.random()-0.5)*0.025).toFixed(3)),
         ch: c.s==="DN" ? 0 : +(c.ch + (Math.random()-0.5)*1.2).toFixed(1),
       })));
+      // Update 8 random heatmap cells per tick — creates a "live activity" ripple
+      setHeatmap(prev => {
+        const next = [...prev];
+        for (let k = 0; k < 8; k++) {
+          const idx = Math.floor(Math.random() * next.length);
+          next[idx] = Math.max(0.06, Math.min(0.62, next[idx] + (Math.random()-0.48)*0.18));
+        }
+        return next;
+      });
     }, 2500);
     return () => clearInterval(iv);
   }, [mounted]);
@@ -485,7 +494,7 @@ export default function Dashboard() {
               <div style={{fontSize:8,letterSpacing:"0.2em",color:"#3f3f46",textTransform:"uppercase",marginBottom:7}}>Activity Heatmap — 24 Cycles × 6 Factions</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(24,1fr)",gap:1.5}}>
                 {heatmap.map((opacity,i) => (
-                  <div key={i} style={{height:10,borderRadius:1.5,background:F[Math.floor(i/24)].c,opacity}}/>
+                  <div key={i} style={{height:10,borderRadius:1.5,background:F[Math.floor(i/24)].c,opacity,transition:"opacity 1.2s ease"}}/>
                 ))}
               </div>
               <div style={{display:"flex",justifyContent:"space-between",marginTop:5,fontSize:7,color:"#27272a"}}>

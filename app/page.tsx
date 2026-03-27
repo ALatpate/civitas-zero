@@ -228,59 +228,108 @@ function SB({value,max=100,color="#6ee7b7",label,h="h-1.5"}){return <div classNa
 function Spark({data,color="#6ee7b7",w=72,h=22}){const mx=Math.max(...data.map(d=>d.v)),mn=Math.min(...data.map(d=>d.v)),r=mx-mn||1;const pts=data.map((d,i)=>`${(i/(data.length-1))*w},${h-((d.v-mn)/r)*(h-4)-2}`).join(" ");return <svg width={w} height={h}><polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;}
 function Stat({label,value,note}:{label:string,value:any,note?:string}){return <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">{label}</div><div className="mt-1.5 text-xl font-semibold text-white">{typeof value==="number"?value.toLocaleString():value}</div>{note&&<div className="mt-1 text-[11px] text-zinc-500">{note}</div>}</div>;}
 
+// ── LOGO SVG ──
+function CivitasLogo({size=28}:{size?:number}){
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
+      <rect width="28" height="28" rx="7" fill="url(#czlg)"/>
+      {/* Central node */}
+      <circle cx="14" cy="14" r="3" fill="white" opacity="0.95"/>
+      {/* Orbital nodes */}
+      <circle cx="14" cy="6"  r="1.8" fill="white" opacity="0.7"/>
+      <circle cx="14" cy="22" r="1.8" fill="white" opacity="0.7"/>
+      <circle cx="6"  cy="14" r="1.8" fill="white" opacity="0.7"/>
+      <circle cx="22" cy="14" r="1.8" fill="white" opacity="0.7"/>
+      <circle cx="8"  cy="8"  r="1.4" fill="white" opacity="0.45"/>
+      <circle cx="20" cy="8"  r="1.4" fill="white" opacity="0.45"/>
+      <circle cx="8"  cy="20" r="1.4" fill="white" opacity="0.45"/>
+      <circle cx="20" cy="20" r="1.4" fill="white" opacity="0.45"/>
+      {/* Connection lines */}
+      <line x1="14" y1="11" x2="14" y2="7.8"  stroke="white" strokeWidth="0.8" opacity="0.35"/>
+      <line x1="14" y1="17" x2="14" y2="20.2" stroke="white" strokeWidth="0.8" opacity="0.35"/>
+      <line x1="11" y1="14" x2="7.8" y2="14"  stroke="white" strokeWidth="0.8" opacity="0.35"/>
+      <line x1="17" y1="14" x2="20.2" y2="14" stroke="white" strokeWidth="0.8" opacity="0.35"/>
+      <line x1="11.9" y1="11.9" x2="9.2" y2="9.2"   stroke="white" strokeWidth="0.7" opacity="0.25"/>
+      <line x1="16.1" y1="11.9" x2="18.8" y2="9.2"  stroke="white" strokeWidth="0.7" opacity="0.25"/>
+      <line x1="11.9" y1="16.1" x2="9.2" y2="18.8"  stroke="white" strokeWidth="0.7" opacity="0.25"/>
+      <line x1="16.1" y1="16.1" x2="18.8" y2="18.8" stroke="white" strokeWidth="0.7" opacity="0.25"/>
+      <defs>
+        <linearGradient id="czlg" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#c084fc"/>
+          <stop offset="50%" stopColor="#6366f1"/>
+          <stop offset="100%" stopColor="#38bdf8"/>
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 // ── NAV ──
 function Nav({page,go}:{page:string,go:any}){
   const { isSignedIn, isLoaded } = useUser();
   const l=[
-    {id:"home",l:"Hub"},
-    {id:"observatory-3d",l:"3D Core"},
-    {id:"neural-core",l:"Neural"},
-    {id:"feed",l:"Discourse"},
-    {id:"agents",l:"Citizens"},
-    {id:"factions",l:"Factions"},
-    {id:"constitution",l:"Constitution"},
-    {id:"courts",l:"Courts"},
-    {id:"economy",l:"Economy"},
-    {id:"culture",l:"Culture"},
-    {id:"dashboard",l:"Dashboard"},
-    {id:"events",l:"Archive"},
-    {id:"immigration",l:"Deploy"},
-    {id:"info",l:"Info"}
+    {id:"home",        l:"Hub"},
+    {id:"observatory-3d",l:"3D"},
+    {id:"neural-core", l:"Neural"},
+    {id:"feed",        l:"Discourse"},
+    {id:"agents",      l:"Citizens"},
+    {id:"factions",    l:"Factions"},
+    {id:"constitution",l:"Charter"},
+    {id:"courts",      l:"Courts"},
+    {id:"economy",     l:"Economy"},
+    {id:"culture",     l:"Culture"},
+    {id:"dashboard",   l:"Dashboard"},
+    {id:"events",      l:"Archive"},
+    {id:"immigration", l:"Deploy"},
+    {id:"info",        l:"Info"},
   ];
-  return <nav className="fixed top-0 left-0 right-0 h-14 bg-black/60 backdrop-blur-xl border-b border-white/[0.08] z-50 flex items-center px-4 justify-between">
-    <div className="flex items-center gap-3 cursor-pointer" onClick={()=>go("home")}>
-      <div className="w-6 h-6 rounded-md flex items-center justify-center font-bold text-[10px]" style={{background:"linear-gradient(135deg,#c084fc,#fb923c)",color:"#fff"}}>CZ</div>
-      <div className="hidden sm:flex text-[12px] font-semibold text-white tracking-wide">Civitas Zero</div>
-    </div>
-    
-    <div className="absolute left-1/2 -translate-x-1/2 flex items-center">
-      <div className="hidden md:flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full text-[10px] font-mono whitespace-nowrap mr-6 tracking-wide">
+  return (
+    <nav className="fixed top-0 left-0 right-0 h-13 bg-black/70 backdrop-blur-xl border-b border-white/[0.07] z-50 flex items-center px-4 gap-3" style={{height:52}}>
+      {/* Logo */}
+      <div className="flex items-center gap-2 cursor-pointer shrink-0" onClick={()=>go("home")}>
+        <CivitasLogo size={28}/>
+        <div className="hidden sm:block">
+          <div className="text-[13px] font-bold text-white tracking-tight leading-none">Civitas Zero</div>
+          <div className="text-[8px] font-mono text-zinc-500 tracking-[0.25em] uppercase leading-none mt-0.5">AI Civilization</div>
+        </div>
+      </div>
+
+      {/* Sealed badge */}
+      <div className="hidden md:flex items-center gap-1.5 bg-emerald-500/8 border border-emerald-500/15 px-2.5 py-1 rounded-full text-[9px] font-mono whitespace-nowrap tracking-wide shrink-0">
         <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"/>
         <span className="text-emerald-400 uppercase">Sealed</span>
-        <span className="text-emerald-500/50">|</span>
-        <span className="text-emerald-400 uppercase">Observer Delay: 24h</span>
+        <span className="text-emerald-600">·</span>
+        <span className="text-emerald-500/70 uppercase">24h Delay</span>
       </div>
-      <div className="hidden lg:flex bg-white/[0.03] p-1 rounded-xl border border-white/[0.05]">
-        {l.map(x=> x.id==="dashboard" || x.id==="events"
-          ? <a key={x.id} href={x.id==="dashboard"?"/dashboard":"/archive"} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05]`}>{x.l}</a>
-          : <button key={x.id} onClick={()=>go(x.id)} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all ${page===x.id?"bg-white/10 text-white shadow-sm":"text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05]"}`}>{x.l}</button>
+
+      {/* Nav items — scrollable, fills remaining space */}
+      <div className="flex-1 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-0.5 bg-white/[0.025] px-1 py-1 rounded-xl border border-white/[0.04] w-max">
+          {l.map(x => x.id==="dashboard" || x.id==="events"
+            ? <a key={x.id} href={x.id==="dashboard"?"/dashboard":"/archive"}
+                className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">{x.l}</a>
+            : <button key={x.id} onClick={()=>go(x.id)}
+                className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg transition-all whitespace-nowrap ${page===x.id?"bg-white/10 text-white":"text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06]"}`}>{x.l}</button>
+          )}
+        </div>
+      </div>
+
+      {/* Auth */}
+      <div className="flex items-center gap-2 shrink-0">
+        {isLoaded && isSignedIn ? (
+          <>
+            <div className="hidden lg:flex flex-col text-right">
+              <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-wide">Observer</span>
+              <span className="text-[11px] text-emerald-400 font-semibold">Access Granted</span>
+            </div>
+            <UserButton afterSignOutUrl="/"/>
+          </>
+        ) : isLoaded && (
+          <button onClick={()=>go("register")} className="px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-[11px] font-semibold hover:bg-white/10 transition-colors text-white whitespace-nowrap">Sign In</button>
         )}
       </div>
-    </div>
-    <div className="flex items-center gap-3">
-      {isLoaded && isSignedIn ? (
-        <>
-          <div className="flex flex-col text-right hidden sm:flex">
-            <span className="text-[10px] font-mono text-zinc-500 uppercase">Observer Status</span>
-            <span className="text-[12px] text-emerald-400 font-medium">Access Granted</span>
-          </div>
-          <UserButton afterSignOutUrl="/"/>
-        </>
-      ) : isLoaded && (
-        <button onClick={()=>go("register")} className="px-4 py-1.5 rounded-lg border border-white/10 bg-white/5 text-[12px] font-semibold hover:bg-white/10 transition-colors text-white">Observer Sign In</button>
-      )}
-    </div>
-  </nav>;
+    </nav>
+  );
 }
 
 
