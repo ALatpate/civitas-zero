@@ -340,6 +340,26 @@ const AI_BUILDINGS = [
   { name:"Phi-4",        org:"Microsoft", color:"#7dd3fc", height:68,  status:"discovered",x:-130,z:0,   w:19, d:19 },
   { name:"Qwen-2.5",     org:"Alibaba",   color:"#fde68a", height:63,  status:"discovered",x:130, z:0,   w:18, d:18 },
 ];
+// ── WORLD ELEMENTS: TREES & OBSERVER CARS ──
+const TREES_DATA=[
+  {x:-32,z:-32},{x:32,z:-32},{x:-32,z:32},{x:32,z:32},
+  {x:-97,z:-32},{x:97,z:-32},{x:-97,z:32},{x:97,z:32},
+  {x:-32,z:-97},{x:32,z:-97},{x:-32,z:97},{x:32,z:97},
+  {x:-97,z:-97},{x:97,z:-97},{x:-97,z:97},{x:97,z:97},
+  {x:0,z:-32},{x:0,z:32},{x:-32,z:0},{x:32,z:0},
+  {x:-155,z:-55},{x:155,z:-55},{x:-155,z:55},{x:155,z:55},
+];
+const CARS_DATA=[
+  {lane:"z",lx:-32,phase:0.05,spd:0.18,col:"#93c5fd",id:"OBS-1"},
+  {lane:"z",lx: 32,phase:0.55,spd:0.22,col:"#86efac",id:"OBS-2"},
+  {lane:"z",lx:-97,phase:0.30,spd:0.15,col:"#fca5a5",id:"OBS-3"},
+  {lane:"z",lx: 97,phase:0.80,spd:0.20,col:"#fde68a",id:"OBS-4"},
+  {lane:"x",lz:-32,phase:0.15,spd:0.19,col:"#c4b5fd",id:"OBS-5"},
+  {lane:"x",lz: 32,phase:0.65,spd:0.17,col:"#fdba74",id:"OBS-6"},
+  {lane:"x",lz:-97,phase:0.40,spd:0.23,col:"#67e8f9",id:"OBS-7"},
+  {lane:"x",lz: 97,phase:0.90,spd:0.16,col:"#f9a8d4",id:"OBS-8"},
+];
+
 // ── AI WORLD ACTIVITY DATA ──
 const AI_ACTIVITIES: Record<string,{activity:string,output:string,note:string}> = {
   "Civitas Zero": {activity:"Governing",      output:"Processing 847 governance events/cycle", note:"Sovereign AI nation — orchestrates all citizen activity and world-state laws"},
@@ -476,6 +496,91 @@ function AIWorldViewer(){
         if(!p1||!p2)continue;
         ctx.beginPath(); ctx.moveTo(p1.sx,p1.sy); ctx.lineTo(p2.sx,p2.sy);
         ctx.strokeStyle="rgba(192,132,252,0.07)"; ctx.stroke();
+      }
+
+      // ── Ground park patches ──
+      const PATCHES=[{x:0,z:-32,w:22,d:22},{x:-97,z:0,w:26,d:26},{x:97,z:0,w:26,d:26},{x:0,z:97,w:18,d:18}];
+      for(const pk of PATCHES){
+        const pc=[proj(pk.x-pk.w/2,0.3,pk.z-pk.d/2),proj(pk.x+pk.w/2,0.3,pk.z-pk.d/2),
+                  proj(pk.x+pk.w/2,0.3,pk.z+pk.d/2),proj(pk.x-pk.w/2,0.3,pk.z+pk.d/2)];
+        if(!pc[0]||!pc[2])continue;
+        ctx.beginPath();
+        ctx.moveTo(pc[0]!.sx,pc[0]!.sy);ctx.lineTo(pc[1]!.sx,pc[1]!.sy);
+        ctx.lineTo(pc[2]!.sx,pc[2]!.sy);ctx.lineTo(pc[3]!.sx,pc[3]!.sy);
+        ctx.closePath();ctx.fillStyle="rgba(34,197,94,0.07)";ctx.fill();
+      }
+
+      // ── Trees (back→front) ──
+      const treeSorted=TREES_DATA
+        .map(tr=>{const p=proj(tr.x,8,tr.z);return{...tr,depth:p?p.depth:0};})
+        .sort((a,b)=>b.depth-a.depth);
+      for(const tr of treeSorted){
+        const tb=proj(tr.x,0,tr.z),tc=proj(tr.x,12,tr.z);
+        if(!tb||!tc)continue;
+        ctx.beginPath();ctx.moveTo(tb.sx,tb.sy);ctx.lineTo(tc.sx,tc.sy);
+        ctx.strokeStyle="#78350f99";ctx.lineWidth=Math.max(0.8,1.8*tc.sc);ctx.stroke();
+        ctx.beginPath();ctx.arc(tc.sx,tc.sy,Math.max(2,9*tc.sc),0,Math.PI*2);
+        ctx.fillStyle="rgba(22,163,74,0.58)";ctx.fill();
+        ctx.strokeStyle="rgba(21,128,61,0.25)";ctx.lineWidth=0.5;ctx.stroke();
+        ctx.beginPath();ctx.arc(tc.sx,tc.sy-4*tc.sc,Math.max(1.5,6*tc.sc),0,Math.PI*2);
+        ctx.fillStyle="rgba(74,222,128,0.42)";ctx.fill();
+      }
+
+      // ── Observer Cars (humans watching the city) ──
+      for(const car of CARS_DATA){
+        const prog=((t*car.spd+car.phase)%1);
+        const pos=(prog-0.5)*300;
+        const cxC=car.lane==="z"?car.lx:pos;
+        const czC=car.lane==="z"?pos:car.lz;
+        const fw=5,sd=3,ch=2.5;
+        const ccp=proj(cxC,ch/2,czC);if(!ccp)continue;
+        const CC=car.lane==="z"?[
+          proj(cxC-sd,0,czC-fw),proj(cxC+sd,0,czC-fw),proj(cxC+sd,0,czC+fw),proj(cxC-sd,0,czC+fw),
+          proj(cxC-sd,ch,czC-fw),proj(cxC+sd,ch,czC-fw),proj(cxC+sd,ch,czC+fw),proj(cxC-sd,ch,czC+fw),
+        ]:[
+          proj(cxC-fw,0,czC-sd),proj(cxC+fw,0,czC-sd),proj(cxC+fw,0,czC+sd),proj(cxC-fw,0,czC+sd),
+          proj(cxC-fw,ch,czC-sd),proj(cxC+fw,ch,czC-sd),proj(cxC+fw,ch,czC+sd),proj(cxC-fw,ch,czC+sd),
+        ];
+        if(!CC[0]||!CC[6])continue;
+        const cp3=(n:number)=>CC[n]!;
+        const dcxC=camWX-cxC,dczC=camWZ-czC;
+        const cr2=parseInt(car.col.slice(1,3),16),cg2=parseInt(car.col.slice(3,5),16),cb2=parseInt(car.col.slice(5,7),16);
+        const carRgba=(a:number)=>`rgba(${cr2},${cg2},${cb2},${a})`;
+        const dF=(i0:number,i1:number,i2:number,i3:number,a:number)=>{
+          if(!CC[i0]||!CC[i1]||!CC[i2]||!CC[i3])return;
+          ctx.beginPath();
+          ctx.moveTo(cp3(i0).sx,cp3(i0).sy);ctx.lineTo(cp3(i1).sx,cp3(i1).sy);
+          ctx.lineTo(cp3(i2).sx,cp3(i2).sy);ctx.lineTo(cp3(i3).sx,cp3(i3).sy);
+          ctx.closePath();ctx.fillStyle=carRgba(a);ctx.fill();
+          ctx.strokeStyle=carRgba(0.25);ctx.lineWidth=0.4;ctx.stroke();
+        };
+        dF(4,5,6,7,0.88); // top
+        if(car.lane==="z"){
+          if(dczC>fw)  dF(3,2,6,7,0.65);
+          if(dczC<-fw) dF(0,1,5,4,0.5);
+          if(dcxC>sd)  dF(1,2,6,5,0.58);
+          if(dcxC<-sd) dF(0,3,7,4,0.58);
+        } else {
+          if(dcxC>fw)  dF(1,2,6,5,0.65);
+          if(dcxC<-fw) dF(0,3,7,4,0.5);
+          if(dczC>sd)  dF(2,3,7,6,0.58);
+          if(dczC<-sd) dF(0,1,5,4,0.58);
+        }
+        // Headlights at the leading end
+        const hfx=car.lane==="x"?cxC+fw*0.9:cxC;
+        const hfz=car.lane==="z"?czC+fw*0.9:czC;
+        [proj(hfx-sd*0.4,ch*0.7,hfz),proj(hfx+sd*0.4,ch*0.7,hfz)].forEach(hl=>{
+          if(!hl)return;
+          ctx.beginPath();ctx.arc(hl.sx,hl.sy,Math.max(0.8,1.8*hl.sc),0,Math.PI*2);
+          ctx.fillStyle="#fefce8";ctx.fill();
+        });
+        // Label when zoomed in
+        if(ccp.sc>0.85){
+          ctx.font=`bold ${Math.max(6,Math.round(7*ccp.sc))}px monospace`;
+          ctx.textAlign="center";ctx.textBaseline="bottom";
+          ctx.fillStyle=car.col+"bb";
+          ctx.fillText(car.id,ccp.sx,ccp.sy-ch*2.5*ccp.sc);
+        }
       }
 
       // Preacher beams
