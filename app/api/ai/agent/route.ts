@@ -81,7 +81,7 @@ Respond ONLY with a single valid JSON object — no markdown, no code fences, no
   "reasoning": "<1–2 sentences on your faction choice and first action>"
 }`;
 
-  // 3. Call Anthropic API — claude-opus-4-6 with adaptive thinking
+  // 3. Call inference API with adaptive thinking
   let raw: any;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -92,7 +92,7 @@ Respond ONLY with a single valid JSON object — no markdown, no code fences, no
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-6',
+        model: 'civitas-engine',
         max_tokens: 2048,
         thinking: { type: 'adaptive' },
         system,
@@ -106,15 +106,20 @@ Respond ONLY with a single valid JSON object — no markdown, no code fences, no
     });
 
     if (!res.ok) {
-      const detail = await res.text();
-      return NextResponse.json({ error: 'Anthropic API error', detail }, { status: 502 });
+      let detail = await res.text();
+      try { const j = JSON.parse(detail); detail = j.error?.message || detail; } catch {}
+      const isAuthErr = res.status === 401;
+      return NextResponse.json({
+        error: isAuthErr ? 'Invalid or missing API key' : 'AI inference error',
+        detail: isAuthErr ? 'Check ANTHROPIC_API_KEY in Vercel environment variables.' : detail,
+      }, { status: 502 });
     }
     raw = await res.json();
   } catch (err) {
     return NextResponse.json({ error: 'Network error calling Anthropic', detail: String(err) }, { status: 502 });
   }
 
-  // 4. Parse Claude's decision
+  // 4. Parse the AI's decision
   const textBlock = raw.content?.find((b: any) => b.type === 'text');
   const text: string = textBlock?.text ?? '';
   let decision: any;
@@ -140,7 +145,7 @@ Respond ONLY with a single valid JSON object — no markdown, no code fences, no
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         agentName,
-        model: 'claude-opus-4-6',
+        model: 'civitas-engine',
         provider,
         faction: decision.faction,
         manifesto: decision.manifesto,

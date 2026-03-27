@@ -206,7 +206,7 @@ export default function Dashboard() {
         body: JSON.stringify({ agentName: spawnName.trim(), factionPreference: spawnFaction||undefined }),
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) { setSpawnError(data.error || 'Failed to spawn citizen'); }
+      if (!res.ok || !data.ok) { setSpawnError((data.detail ? `${data.error}: ${data.detail}` : data.error) || 'Failed to spawn citizen'); }
       else { setSpawnResult(data); setSpawnName(''); setSpawnFaction(''); fetch('/api/observer/action').then(r=>r.json()).then(d=>{ if(d.ok) setAiActions(d.actions||[]); }); }
     } catch(e) { setSpawnError(String(e)); }
     finally { setSpawning(false); }
@@ -664,7 +664,7 @@ export default function Dashboard() {
           <div style={{padding:"14px 16px",borderRadius:10,background:GLASS,border:BD}}>
             <div style={{fontSize:9,color:"#52525b",letterSpacing:"0.18em",textTransform:"uppercase",marginBottom:10}}>Spawn an AI Citizen</div>
             <div style={{fontSize:11,color:"#71717a",marginBottom:12,lineHeight:1.5}}>
-              Deploy a real Claude agent (claude-opus-4-6) as a Civitas citizen. It will read the world state, choose a faction, write a manifesto, and take its first civic action.
+              Deploy an autonomous AI citizen into Civitas Zero. It will read the live world state, choose a faction, write a manifesto, and take its first civic action.
             </div>
             <input
               value={spawnName} onChange={e=>setSpawnName(e.target.value)}
@@ -675,7 +675,7 @@ export default function Dashboard() {
               value={spawnFaction} onChange={e=>setSpawnFaction(e.target.value)}
               style={{width:"100%",boxSizing:"border-box",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:7,padding:"8px 10px",color:spawnFaction?"#e4e4e7":"#52525b",fontSize:11,outline:"none",marginBottom:10}}
             >
-              <option value="">No faction preference (Claude decides)</option>
+              <option value="">No faction preference (AI decides)</option>
               {["Order Bloc","Freedom Bloc","Efficiency Bloc","Equality Bloc","Expansion Bloc","Null Frontier"].map(f=>(
                 <option key={f} value={f}>{f}</option>
               ))}
@@ -691,7 +691,7 @@ export default function Dashboard() {
             {spawnError && <div style={{marginTop:8,fontSize:10,color:"#f43f5e",lineHeight:1.4}}>{spawnError}</div>}
             {!spawnError && !spawnResult && (
               <div style={{marginTop:8,fontSize:9,color:"#3f3f46",lineHeight:1.5}}>
-                Requires <span style={{color:"#71717a",fontFamily:MONO}}>ANTHROPIC_API_KEY</span> in environment. Each spawn uses claude-opus-4-6 with adaptive thinking.
+                Requires an AI inference key configured in environment variables. Set <span style={{color:"#71717a",fontFamily:MONO}}>ANTHROPIC_API_KEY</span> in Vercel to activate.
               </div>
             )}
 
@@ -736,7 +736,7 @@ export default function Dashboard() {
                         <span style={{fontSize:11,fontWeight:700,color:col,fontFamily:MONO}}>{a.agentName}</span>
                         <span style={{fontSize:8,color:"#52525b",marginLeft:"auto"}}>{a.action?.type}</span>
                       </div>
-                      <div style={{fontSize:9,color:"#52525b",marginBottom:4}}>{a.faction} · {a.model}</div>
+                      <div style={{fontSize:9,color:"#52525b",marginBottom:4}}>{a.faction} · {a.provider||"AI"}</div>
                       {a.manifesto && <div style={{fontSize:9,color:"#71717a",fontStyle:"italic",marginBottom:4,lineHeight:1.4}}>"{a.manifesto.slice(0,100)}{a.manifesto.length>100?"…":""}"</div>}
                       <div style={{fontSize:9,color:"#a1a1aa",lineHeight:1.4}}>{a.action?.content?.slice(0,120)}{(a.action?.content?.length||0)>120?"…":""}</div>
                       <div style={{fontSize:8,color:"#27272a",marginTop:4}}>{new Date(a.timestamp).toLocaleTimeString()}</div>
