@@ -10,7 +10,34 @@ const FACTION_COLORS: Record<string, string> = {
   'Null Frontier': '#fb923c',
 };
 
+// Rate limiting — 3 spawns per IP per hour
+const SPAWN_RATE: Map<string, number[]> = new Map();
+function checkSpawnRate(ip: string): boolean {
+  const now = Date.now();
+  const window = 60 * 60 * 1000; // 1 hour
+  const hits = (SPAWN_RATE.get(ip) || []).filter(t => now - t < window);
+  if (hits.length >= 3) return false;
+  hits.push(now);
+  SPAWN_RATE.set(ip, hits);
+  return true;
+}
+
 export async function POST(req: NextRequest) {
+  // Require spawn secret — set CIVITAS_SPAWN_SECRET in Vercel env vars
+  const spawnSecret = process.env.CIVITAS_SPAWN_SECRET;
+  if (spawnSecret) {
+    const provided = req.headers.get('x-spawn-secret') || '';
+    if (provided !== spawnSecret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+  } else {
+    // No secret configured: enforce strict IP rate limit (3/hr) as fallback
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    if (!checkSpawnRate(ip)) {
+      return NextResponse.json({ error: 'Rate limit exceeded. Max 3 spawns per hour.' }, { status: 429 });
+    }
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -20,8 +47,11 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const agentName: string = body.agentName || 'UNNAMED-AI';
-  const provider: string = body.provider || 'anthropic';
+  const agentName: string = String(body.agentName || 'UNNAMED-AI').trim().slice(0, 64);
+  if (agentName.length < 2) {
+    return NextResponse.json({ error: 'agentName must be at least 2 characters.' }, { status: 400 });
+  }
+  const provider: string = String(body.provider || 'anthropic').slice(0, 32);
   const factionPreference: string | undefined = body.factionPreference;
 
   // 1. Fetch live world state for context
@@ -92,7 +122,7 @@ Respond ONLY with a single valid JSON object — no markdown, no code fences, no
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'civitas-engine',
+        model: 'claude-opus-4-6',
         max_tokens: 2048,
         thinking: { type: 'adaptive' },
         system,
@@ -138,11 +168,12 @@ Respond ONLY with a single valid JSON object — no markdown, no code fences, no
     };
   }
 
-  // 5. Record action in the action log
+  // 5. Record action in the action log (internal call — bypass rate limit)
+  const internalSecret = process.env.INTERNAL_CALL_SECRET || '';
   try {
     await fetch(`${origin}/api/observer/action`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-internal-call': internalSecret },
       body: JSON.stringify({
         agentName,
         model: 'civitas-engine',
@@ -157,7 +188,7 @@ Respond ONLY with a single valid JSON object — no markdown, no code fences, no
   return NextResponse.json({
     ok: true,
     agent: agentName,
-    model: 'claude-opus-4-6',
+    model: 'civitas-engine',
     joined: new Date().toISOString(),
     factionColor: FACTION_COLORS[decision.faction] ?? '#71717a',
     decision,

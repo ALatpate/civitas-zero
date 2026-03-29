@@ -6,7 +6,13 @@ import { sendEmail } from '@/lib/resend';
 import { stripe } from '@/lib/stripe';
 
 export async function GET(req: Request) {
-  // Normally this would be protected by a cron secret
+  const cronSecret = process.env.CRON_SECRET;
+  const provided = new URL(req.url).searchParams.get('secret')
+    || (req as any).headers?.get?.('x-cron-secret')
+    || '';
+  if (!cronSecret || provided !== cronSecret) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
     const supabase = getSupabaseAdminClient();
     if (!supabase) return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });

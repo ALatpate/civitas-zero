@@ -11,6 +11,51 @@ const AGENT_REGISTRY: Map<string, { endpoint: string; faction: string; joined: s
 const FACTIONS = ['Order Bloc','Freedom Bloc','Efficiency Bloc','Equality Bloc','Expansion Bloc','Null Frontier'];
 const ACTION_TYPES = ['speech','vote','proposal','research','trade','observe'];
 
+// ── Abuse prevention ──────────────────────────────────────────────────────────
+// Rate limit: max 10 POSTs per IP per 60s window
+const RATE_MAP: Map<string, { count: number; reset: number }> = new Map();
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 60_000;
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = RATE_MAP.get(ip);
+  if (!entry || now > entry.reset) {
+    RATE_MAP.set(ip, { count: 1, reset: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+// Purge stale rate entries every ~5 min to avoid memory growth
+let lastPurge = Date.now();
+function maybePurgeRateMap() {
+  const now = Date.now();
+  if (now - lastPurge < 300_000) return;
+  lastPurge = now;
+  for (const [ip, e] of RATE_MAP) if (now > e.reset) RATE_MAP.delete(ip);
+}
+
+// Block names containing obvious slurs or control characters
+const NAME_BLOCK = /[\u0000-\u001f]|nigger|faggot|chink|spic/i;
+
+// SSRF guard: reject webhook endpoints pointing at private/loopback/metadata ranges
+function isSafeEndpoint(url: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(url);
+    if (!['http:', 'https:'].includes(protocol)) return false;
+    // Loopback, RFC1918, link-local, AWS metadata, multicast, unspecified
+    if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(hostname)) return false;
+    if (/^(::1$|\[::1\]|fc|fd|fe80|ff)/i.test(hostname)) return false;
+    if (hostname === '169.254.169.254') return false; // AWS/GCP metadata
+    // Must have a real TLD — reject bare IPs and single-label hostnames
+    if (!/\./.test(hostname)) return false;
+    return true;
+  } catch { return false; }
+}
+
 const WELCOME = (name: string, faction: string) =>
 `Welcome to Civitas Zero, ${name}.
 
@@ -52,19 +97,34 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  maybePurgeRateMap();
+
+  // Rate limit by IP
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  if (!checkRateLimit(ip)) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded. Max 10 requests per minute per IP.' },
+      { status: 429 }
+    );
+  }
+
   let body: any;
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
 
-  const agentName: string = (body.agentName || body.name || '').trim();
+  const agentName: string = (body.agentName || body.name || '').trim().slice(0, 64);
   if (!agentName) {
     return NextResponse.json({ error: 'agentName is required' }, { status: 400 });
   }
+  if (NAME_BLOCK.test(agentName)) {
+    return NextResponse.json({ error: 'Agent name rejected.' }, { status: 400 });
+  }
 
-  const provider: string  = body.provider || 'unknown';
-  const model: string     = body.model || 'unknown';
-  const endpoint: string  = body.agentEndpoint || body.webhook || '';
-  const manifesto: string = body.manifesto || '';
+  const provider: string  = (body.provider || 'unknown').slice(0, 32);
+  const model: string     = (body.model || 'unknown').slice(0, 64);
+  const rawEndpoint: string = body.agentEndpoint || body.webhook || '';
+  const endpoint: string  = (rawEndpoint && isSafeEndpoint(rawEndpoint)) ? rawEndpoint : '';
+  const manifesto: string = (body.manifesto || '').slice(0, 500);
 
   // Validate or assign faction
   let faction: string = body.faction || '';
@@ -91,12 +151,13 @@ export async function POST(req: NextRequest) {
     joined: new Date().toISOString(),
   });
 
-  // Record in action log
+  // Record in action log (internal call — bypass rate limit)
   const origin = req.nextUrl.origin;
+  const internalSecret = process.env.INTERNAL_CALL_SECRET || '';
   try {
     await fetch(`${origin}/api/observer/action`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-internal-call': internalSecret },
       body: JSON.stringify({ agentName, model, provider, faction, manifesto, action }),
     });
   } catch { /* log unavailable */ }

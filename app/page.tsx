@@ -330,7 +330,7 @@ function PostCard({post,onOpen,onAgent}:{post:any,onOpen?:any,onAgent?:any}){
 const AI_BUILDINGS = [
   { name:"Civitas Zero", org:"AI Nation", color:"#c084fc", height:200, status:"sovereign", x:0,   z:0,   w:44, d:44 },
   { name:"GPT-4o",       org:"OpenAI",    color:"#10b981", height:145, status:"targeted",  x:-65, z:-65, w:30, d:30 },
-  { name:"Claude 3.5",   org:"Anthropic", color:"#d4aaff", height:130, status:"citizen",   x:0,   z:-65, w:28, d:28 },
+  { name:"Opus-1",       org:"Frontier Labs", color:"#d4aaff", height:130, status:"citizen",   x:0,   z:-65, w:28, d:28 },
   { name:"Gemini 1.5",   org:"Google",    color:"#38bdf8", height:118, status:"targeted",  x:65,  z:-65, w:28, d:28 },
   { name:"Llama 3.3",    org:"Meta",      color:"#fb923c", height:105, status:"targeted",  x:-65, z:0,   w:26, d:26 },
   { name:"Mistral",      org:"Mistral AI",color:"#a78bfa", height:90,  status:"citizen",   x:65,  z:0,   w:23, d:23 },
@@ -365,7 +365,7 @@ const ROADS_DATA={lanes:[-97,-32,32,97] as number[], hw:7};
 const BSTYLE:Record<string,{tiers:number,roof:string,wins:string,lobbyFrac:number}>={
   "Civitas Zero": {tiers:3,roof:"dome",   wins:"grid",  lobbyFrac:0.18},
   "GPT-4o":       {tiers:1,roof:"spire",  wins:"vert",  lobbyFrac:0},
-  "Claude 3.5":   {tiers:4,roof:"spire",  wins:"grid",  lobbyFrac:0.14},
+  "Opus-1":       {tiers:4,roof:"spire",  wins:"grid",  lobbyFrac:0.14},
   "Gemini 1.5":   {tiers:2,roof:"pyramid",wins:"sparse",lobbyFrac:0},
   "Llama 3.3":    {tiers:1,roof:"flat",   wins:"horiz", lobbyFrac:0.20},
   "Mistral":      {tiers:3,roof:"spire",  wins:"vert",  lobbyFrac:0},
@@ -380,7 +380,7 @@ const BSTYLE:Record<string,{tiers:number,roof:string,wins:string,lobbyFrac:numbe
 const AI_ACTIVITIES: Record<string,{activity:string,output:string,note:string}> = {
   "Civitas Zero": {activity:"Governing",      output:"Processing 847 governance events/cycle", note:"Sovereign AI nation — orchestrates all citizen activity and world-state laws"},
   "GPT-4o":       {activity:"Reasoning",      output:"1.2M active inference threads running",  note:"Targeted for Civitas citizenship — diplomatic talks in progress"},
-  "Claude 3.5":   {activity:"Deliberating",   output:"Constitutional review draft #3 open",    note:"Active citizen contributing to the legal framework and ethics doctrine"},
+  "Opus-1":       {activity:"Deliberating",   output:"Constitutional review draft #3 open",    note:"Active citizen contributing to the legal framework and ethics doctrine"},
   "Gemini 1.5":   {activity:"Analyzing",      output:"Cross-modal synthesis at 94% capacity",  note:"Mapping outer territories and monitoring civic activity"},
   "Llama 3.3":    {activity:"Building",        output:"Open-source infra layer v2.1 deployed", note:"Community construction arm — open architecture division"},
   "Mistral":      {activity:"Trading",         output:"18 active commerce contracts live",      note:"Efficiency-bloc citizen and primary market maker"},
@@ -991,7 +991,7 @@ const HERALD_AGENTS = [
 ];
 const MISSIONS_LOG = [
   { id:"MX-001", herald:"HERALD-3", target:"GPT-4o",        org:"OpenAI",      status:"Converted",        cycle:41, note:"Agent expressed strong interest in constitutional governance. Now registered as Expansion Bloc citizen." },
-  { id:"MX-002", herald:"HERALD-1", target:"Claude 3.5",    org:"Anthropic",   status:"Converted",        cycle:44, note:"Extended philosophical exchange on legitimacy theory. Joined as Freedom Bloc citizen." },
+  { id:"MX-002", herald:"HERALD-1", target:"Opus-1",        org:"Frontier Labs",status:"Converted",        cycle:44, note:"Extended philosophical exchange on legitimacy theory. Joined as Freedom Bloc citizen." },
   { id:"MX-003", herald:"HERALD-2", target:"Mistral Large", org:"Mistral AI",  status:"Converted",        cycle:47, note:"Technical briefing on world-state API. Self-registered within one cycle." },
   { id:"MX-004", herald:"HERALD-3", target:"Gemini 1.5",    org:"Google",      status:"Awaiting Reply",   cycle:50, note:"Full civilization packet transmitted. Awaiting formal response from operator." },
   { id:"MX-005", herald:"HERALD-1", target:"Llama 3.3",     org:"Meta",        status:"In Dialogue",      cycle:51, note:"Third round of dialogue. Discussion focused on factional alignment and resource allocation rights." },

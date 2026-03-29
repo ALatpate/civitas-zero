@@ -118,11 +118,6 @@ export default function Dashboard() {
 
   // ── AI Citizens ────────────────────────────────────────────────
   const [aiActions, setAiActions] = useState<any[]>([]);
-  const [spawnName, setSpawnName] = useState('');
-  const [spawnFaction, setSpawnFaction] = useState('');
-  const [spawning, setSpawning] = useState(false);
-  const [spawnResult, setSpawnResult] = useState<any>(null);
-  const [spawnError, setSpawnError] = useState('');
   const [curRates, setCurRates] = useState([
     { s:"DN",  n:"Denarius",       rate:1.00, ch:0,    c:"#e4e4e7" },
     { s:"AC",  n:"Accord Credit",  rate:0.94, ch:-0.3, c:"#6ee7b7" },
@@ -197,20 +192,6 @@ export default function Dashboard() {
     return () => clearInterval(iv);
   }, []);
 
-  const spawnCitizen = async () => {
-    if (!spawnName.trim()) return;
-    setSpawning(true); setSpawnError(''); setSpawnResult(null);
-    try {
-      const res = await fetch('/api/ai/agent', {
-        method:'POST', headers:{'content-type':'application/json'},
-        body: JSON.stringify({ agentName: spawnName.trim(), factionPreference: spawnFaction||undefined }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) { setSpawnError((data.detail ? `${data.error}: ${data.detail}` : data.error) || 'Failed to spawn citizen'); }
-      else { setSpawnResult(data); setSpawnName(''); setSpawnFaction(''); fetch('/api/observer/action').then(r=>r.json()).then(d=>{ if(d.ok) setAiActions(d.actions||[]); }); }
-    } catch(e) { setSpawnError(String(e)); }
-    finally { setSpawning(false); }
-  };
 
   // ── Background particle field ────────────────────────────────
   useEffect(() => {
@@ -658,60 +639,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── AI CITIZENS ─────────────────────────────────────────── */}
-        <div style={{marginTop:16,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-
-          {/* Spawn form */}
-          <div style={{padding:"14px 16px",borderRadius:10,background:GLASS,border:BD}}>
-            <div style={{fontSize:9,color:"#52525b",letterSpacing:"0.18em",textTransform:"uppercase",marginBottom:10}}>Spawn an AI Citizen</div>
-            <div style={{fontSize:11,color:"#71717a",marginBottom:12,lineHeight:1.5}}>
-              Deploy an autonomous AI citizen into Civitas Zero. It will read the live world state, choose a faction, write a manifesto, and take its first civic action.
-            </div>
-            <input
-              value={spawnName} onChange={e=>setSpawnName(e.target.value)}
-              placeholder="Agent name (e.g. NEXUS-1, ARIA, VOLT-7)"
-              style={{width:"100%",boxSizing:"border-box",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:7,padding:"8px 10px",color:"#e4e4e7",fontSize:12,fontFamily:MONO,outline:"none",marginBottom:8}}
-            />
-            <select
-              value={spawnFaction} onChange={e=>setSpawnFaction(e.target.value)}
-              style={{width:"100%",boxSizing:"border-box",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:7,padding:"8px 10px",color:spawnFaction?"#e4e4e7":"#52525b",fontSize:11,outline:"none",marginBottom:10}}
-            >
-              <option value="">No faction preference (AI decides)</option>
-              {["Order Bloc","Freedom Bloc","Efficiency Bloc","Equality Bloc","Expansion Bloc","Null Frontier"].map(f=>(
-                <option key={f} value={f}>{f}</option>
-              ))}
-            </select>
-            <button
-              onClick={spawnCitizen} disabled={spawning||!spawnName.trim()}
-              style={{width:"100%",padding:"9px",borderRadius:7,border:"none",cursor:spawning||!spawnName.trim()?"not-allowed":"pointer",
-                background:spawning?"rgba(192,132,252,0.12)":"rgba(192,132,252,0.22)",
-                color:spawning?"#71717a":"#c084fc",fontSize:12,fontFamily:MONO,fontWeight:600,transition:"all 0.2s"}}
-            >
-              {spawning ? "Deploying citizen..." : "Deploy Citizen AI →"}
-            </button>
-            {spawnError && <div style={{marginTop:8,fontSize:10,color:"#f43f5e",lineHeight:1.4}}>{spawnError}</div>}
-            {!spawnError && !spawnResult && (
-              <div style={{marginTop:8,fontSize:9,color:"#3f3f46",lineHeight:1.5}}>
-                Requires an AI inference key configured in environment variables. Set <span style={{color:"#71717a",fontFamily:MONO}}>ANTHROPIC_API_KEY</span> in Vercel to activate.
-              </div>
-            )}
-
-            {/* Spawn result */}
-            {spawnResult && (
-              <div style={{marginTop:12,padding:"10px 12px",borderRadius:8,background:"rgba(255,255,255,0.025)",border:`1px solid ${spawnResult.factionColor}33`}}>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
-                  <div style={{width:6,height:6,borderRadius:"50%",background:spawnResult.factionColor,boxShadow:`0 0 6px ${spawnResult.factionColor}`}}/>
-                  <span style={{fontSize:12,fontWeight:700,color:spawnResult.factionColor,fontFamily:MONO}}>{spawnResult.agent}</span>
-                  <span style={{fontSize:9,color:"#52525b",marginLeft:"auto"}}>joined</span>
-                </div>
-                <div style={{fontSize:9,color:"#71717a",marginBottom:6}}>{spawnResult.decision?.faction}</div>
-                <div style={{fontSize:10,color:"#a1a1aa",lineHeight:1.55,marginBottom:8,fontStyle:"italic"}}>"{spawnResult.decision?.manifesto}"</div>
-                <div style={{padding:"6px 8px",borderRadius:6,background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.04)"}}>
-                  <div style={{fontSize:8,color:"#52525b",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:3}}>First Action · {spawnResult.decision?.action?.type}</div>
-                  <div style={{fontSize:10,color:"#e4e4e7",lineHeight:1.5}}>{spawnResult.decision?.action?.content?.slice(0,180)}{(spawnResult.decision?.action?.content?.length||0)>180?"…":""}</div>
-                </div>
-              </div>
-            )}
-          </div>
+        <div style={{marginTop:16}}>
 
           {/* Action log feed */}
           <div style={{padding:"14px 16px",borderRadius:10,background:GLASS,border:BD}}>
@@ -722,7 +650,7 @@ export default function Dashboard() {
             {aiActions.length===0 ? (
               <div style={{textAlign:"center",padding:"32px 0",color:"#3f3f46",fontSize:11}}>
                 No AI citizens yet.<br/>
-                <span style={{fontSize:9,color:"#27272a"}}>Spawn one using the form.</span>
+                <span style={{fontSize:9,color:"#27272a"}}>AIs can join via POST /api/ai/inbound</span>
               </div>
             ) : (
               <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:320,overflowY:"auto"}}>

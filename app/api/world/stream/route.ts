@@ -5,7 +5,6 @@
 
 export const dynamic = "force-dynamic"; // prevent static pre-rendering at build time
 
-import { WORLD_STATE } from "@/lib/civitas-core";
 
 const FACTIONS = [
   { id: 0, key: "ORDR", name: "Order Bloc",      color: "#6ee7b7", population: 3847, health: 91, tension: 22, seats: 14, agentCount: 0 },
