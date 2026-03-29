@@ -192,6 +192,57 @@ export default function Dashboard() {
     return () => clearInterval(iv);
   }, []);
 
+  // ── Live world state: seed from API on mount, then follow SSE stream ──────────
+  const [worldEpoch, setWorldEpoch] = useState<number|null>(null);
+  useEffect(() => {
+    // 1. Seed immediately from REST snapshot
+    fetch('/api/world/state').then(r=>r.json()).then(d=>{
+      const w = d.worldState; if (!w) return;
+      if (w.epoch) setWorldEpoch(w.epoch);
+      if (w.indices) setIdx({
+        tension: Math.round((w.indices.tension   ?? 0.68) * 100),
+        coop:    Math.round((w.indices.cooperation?? 0.71) * 100),
+        trust:   Math.round((w.indices.trust      ?? 0.64) * 100),
+        frag:    Math.round((1-(w.indices.stability??0.48))* 100),
+        heat:    Math.round((w.indices.tension    ?? 0.68) * 110),
+      });
+      if (w.resources) setRes(p => p.map(r => {
+        const live: Record<string,number> = {
+          Energy: w.resources.energy, Compute: w.resources.compute,
+          Memory: w.resources.memory, Bandwidth: w.resources.bandwidth,
+        };
+        return live[r.n] !== undefined ? {...r, v: live[r.n], crit: live[r.n] < 30} : r;
+      }));
+    }).catch(()=>{});
+
+    // 2. Subscribe to SSE stream for continuous live updates
+    const es = new EventSource('/api/world/stream');
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'world_snapshot') {
+          const snap = msg.data;
+          if (snap.vitals?.lawsEnacted) setWorldEpoch(snap.tick);
+          if (snap.indices) setIdx({
+            tension: Math.round((snap.indices.tension        ?? 0.68) * 100),
+            coop:    Math.round((snap.indices.cooperation    ?? 0.71) * 100),
+            trust:   Math.round((snap.indices.trust          ?? 0.64) * 100),
+            frag:    Math.round((snap.indices.fragmentation  ?? 0.52) * 100),
+            heat:    Math.round((snap.indices.narrativeHeat  ?? 0.83) * 100),
+          });
+          if (snap.resources) setRes(p => p.map(r => {
+            const live = snap.resources.find((x:any) => x.name === r.n);
+            return live ? {...r, v: live.value, crit: live.critical ?? live.value < 30} : r;
+          }));
+          if (snap.currencies) setCurRates(snap.currencies.map((c:any) => ({
+            s: c.symbol, n: c.name, rate: c.rate, ch: c.change, c: c.color ?? '#e4e4e7',
+          })));
+        }
+      } catch {}
+    };
+    return () => es.close();
+  }, []);
+
 
   // ── Background particle field ────────────────────────────────
   useEffect(() => {
@@ -430,8 +481,8 @@ export default function Dashboard() {
               <span style={{fontSize:9,fontWeight:600,color:"#fb7185",letterSpacing:"0.1em",textTransform:"uppercase"}}>SEALED</span>
             </div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:17,fontWeight:600,fontFamily:MONO}}>Cycle {52+tick}</div>
-              <div style={{fontSize:8,color:"#27272a",letterSpacing:"0.15em"}}>24H OBSERVER DELAY</div>
+              <div style={{fontSize:17,fontWeight:600,fontFamily:MONO}}>Cycle {worldEpoch ?? (52+tick)}</div>
+              <div style={{fontSize:8,color:"#27272a",letterSpacing:"0.15em"}}>LIVE · {worldEpoch ? 'REAL-TIME' : 'SYNCING...'}</div>
             </div>
           </div>
         </div>
@@ -556,14 +607,14 @@ export default function Dashboard() {
               <div style={{fontSize:8,letterSpacing:"0.2em",color:"#3f3f46",textTransform:"uppercase",marginBottom:8}}>Civilization Vitals</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
                 {([
-                  ["Citizens",    TPOP.toLocaleString(), "#e4e4e7"],
-                  ["Factions",    "6",                   "#c084fc"],
-                  ["Laws",        "52",                  "#6ee7b7"],
-                  ["Court Cases", "3",                   "#38bdf8"],
-                  ["GDP",         "1.8M DN",             "#fbbf24"],
-                  ["Deaths",      `${3+tick%3}/cyc`,     "#f43f5e"],
-                  ["Immigration", "23/cyc",              "#6ee7b7"],
-                  ["Corporations","847",                 "#f472b6"],
+                  ["Citizens",    (14847 + (worldEpoch ? worldEpoch - 52 : 0) * 8).toLocaleString(), "#e4e4e7"],
+                  ["Factions",    "6",                                              "#c084fc"],
+                  ["Laws",        worldEpoch ? String(52 + Math.floor((worldEpoch-52)/6)) : "52", "#6ee7b7"],
+                  ["Court Cases", "3",                                              "#38bdf8"],
+                  ["GDP",         worldEpoch ? `${(1.8+(worldEpoch-52)*0.004).toFixed(2)}M DN` : "1.8M DN", "#fbbf24"],
+                  ["AI Joins",    String(aiActions.length),                         "#f43f5e"],
+                  ["Cycle",       worldEpoch ? `#${worldEpoch}` : "syncing",        "#6ee7b7"],
+                  ["Corporations",worldEpoch ? String(847 + (worldEpoch-52)*2) : "847", "#f472b6"],
                 ] as [string,string,string][]).map(([l,v,c]) => (
                   <div key={l} style={{padding:"5px 6px",borderRadius:5,background:"rgba(255,255,255,0.018)"}}>
                     <div style={{fontSize:7,color:"#27272a",textTransform:"uppercase",letterSpacing:"0.12em"}}>{l}</div>
