@@ -302,21 +302,41 @@ export default function ParticleCivilization() {
       // TOP      (p4→p5→p6→p7)  CCW from above
       drawFace([p4,p5,p6,p7], 1.0, 1.0);
 
-      // Window grid on tall front face
-      if (!b.spire && b.h > 25 && faceVis(p0,p4,p5)) {
-        const rows = Math.min(4, Math.floor(b.h / 14));
-        ctx.strokeStyle = fc(b.faction, al * 0.13, 1.6);
-        ctx.lineWidth = 0.4;
-        for (let row=1; row<=rows; row++) {
-          const t0 = row/(rows+1);
-          ctx.beginPath();
-          ctx.moveTo(p0.x+(p4.x-p0.x)*t0, p0.y+(p4.y-p0.y)*t0);
-          ctx.lineTo(p1.x+(p5.x-p1.x)*t0, p1.y+(p5.y-p1.y)*t0);
-          ctx.stroke();
+      // Glowing windows on visible faces (bilinear interpolated dots)
+      const drawWindows = (bl: any, br: any, tl: any, tr: any, ww: number, vis: boolean) => {
+        if (!vis) return;
+        const cols = Math.max(1, Math.floor(ww / 3.2));
+        const rows = Math.max(2, Math.floor(b.h / 6));
+        const avgSc = (tl.sc + tr.sc) / 2;
+        const winR = Math.max(0.5, 1.0 * avgSc);
+        for (let row = 1; row <= rows; row++) {
+          const v = row / (rows + 1);
+          for (let col = 0; col < cols; col++) {
+            const u = (col + 0.5) / cols;
+            const bpx = bl.x + (br.x - bl.x) * u, bpy = bl.y + (br.y - bl.y) * u;
+            const tpx = tl.x + (tr.x - tl.x) * u, tpy = tl.y + (tr.y - tl.y) * u;
+            const wx = bpx + (tpx - bpx) * v, wy = bpy + (tpy - bpy) * v;
+            // Pseudo-random per-window on/off, slowly flickering
+            const lit = Math.sin(b.id * 13.7 + row * 4.13 + col * 7.71 + t * 0.11) > -0.25;
+            if (!lit) continue;
+            if (winR > 0.9 && !dim) {
+              const wg = ctx.createRadialGradient(wx, wy, 0, wx, wy, winR * 5);
+              wg.addColorStop(0, fc(b.faction, al * 0.38 * pb, 1.4));
+              wg.addColorStop(1, fc(b.faction, 0, 1));
+              ctx.fillStyle = wg; ctx.fillRect(wx - winR*5, wy - winR*5, winR*10, winR*10);
+            }
+            ctx.beginPath(); ctx.arc(wx, wy, winR, 0, Math.PI * 2);
+            ctx.fillStyle = fc(b.faction, al * 0.85 * pb, 1.8);
+            ctx.fill();
+          }
         }
+      };
+      if (!b.spire && b.h > 14) {
+        drawWindows(p0, p1, p4, p5, b.w, faceVis(p0, p4, p5));
+        drawWindows(p1, p2, p5, p6, b.d, faceVis(p1, p5, p6));
       }
 
-      // Spire: narrow triangle above building
+      // Spire: narrow triangle above building + glowing tip orb
       if (b.spire) {
         const spireH = b.h > 40 ? 28 : 20;
         const tip = project(x, h + spireH + Math.sin(b.pulse+t*1.5)*1.5, z);
@@ -331,6 +351,16 @@ export default function ParticleCivilization() {
           sg.addColorStop(1, fc(b.faction, 0, 1));
           ctx.fillStyle = sg;
           ctx.fill();
+          // Tip glow orb
+          const pf = 0.55 + Math.sin(b.pulse + t * 2.5) * 0.45;
+          const or = Math.max(1.4, 3.0 * tip.sc);
+          const og = ctx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, or * 7);
+          og.addColorStop(0, fc(b.faction, al * pf * 0.9, 2.0));
+          og.addColorStop(0.35, fc(b.faction, al * pf * 0.4, 1.5));
+          og.addColorStop(1, fc(b.faction, 0, 1));
+          ctx.fillStyle = og; ctx.fillRect(tip.x - or*7, tip.y - or*7, or*14, or*14);
+          ctx.beginPath(); ctx.arc(tip.x, tip.y, Math.max(0.8, or * pf * 0.6), 0, Math.PI * 2);
+          ctx.fillStyle = fc(b.faction, al * 0.95, 2.3); ctx.fill();
         }
       }
 
@@ -404,7 +434,7 @@ export default function ParticleCivilization() {
         const wx = ix * GRID;
         const a0 = project(wx, -1, -EXT*GRID), a1 = project(wx, -1, EXT*GRID);
         if (a0 && a1) {
-          const al = Math.max(0, 0.07 - Math.abs(ix/EXT)*0.055);
+          const al = Math.max(0, 0.13 - Math.abs(ix/EXT)*0.105);
           ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.lineTo(a1.x, a1.y);
           ctx.strokeStyle = `rgba(56,189,248,${al})`; ctx.lineWidth=0.5; ctx.stroke();
         }
@@ -413,7 +443,7 @@ export default function ParticleCivilization() {
         const wz = iz * GRID;
         const a0 = project(-EXT*GRID, -1, wz), a1 = project(EXT*GRID, -1, wz);
         if (a0 && a1) {
-          const al = Math.max(0, 0.07 - Math.abs(iz/EXT)*0.055);
+          const al = Math.max(0, 0.13 - Math.abs(iz/EXT)*0.105);
           ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.lineTo(a1.x, a1.y);
           ctx.strokeStyle = `rgba(56,189,248,${al})`; ctx.lineWidth=0.5; ctx.stroke();
         }
@@ -467,6 +497,22 @@ export default function ParticleCivilization() {
         return { b, depth: cp ? cp.d : -1 };
       }).filter(e => e.depth > 0).sort((a,c) => c.depth - a.depth);
 
+      // Ground glow pools — drawn before buildings so they appear beneath them
+      sorted.forEach(({ b }) => {
+        if (!b.capital) return;
+        const base = project(b.x, 0, b.z);
+        if (!base) return;
+        const hf = hovFacRef.current;
+        const dimG = hf !== null && hf !== b.faction && b.faction >= 0;
+        const gal = dimG ? 0.04 : (hf === b.faction ? 0.38 : 0.18);
+        const poolR = b.w * 2.2 * base.sc;
+        const pg = ctx.createRadialGradient(base.x, base.y, 0, base.x, base.y, poolR * 6);
+        pg.addColorStop(0, fc(b.faction, gal, 0.85));
+        pg.addColorStop(1, fc(b.faction, 0, 1));
+        ctx.fillStyle = pg;
+        ctx.fillRect(base.x - poolR*6, base.y - poolR*6, poolR*12, poolR*12);
+      });
+
       sorted.forEach(({ b }) => drawBld(b, t));
 
       // ── Citizen particles ──
@@ -513,10 +559,11 @@ export default function ParticleCivilization() {
           ctx.strokeStyle = `${arc.color}${al}`;
           ctx.lineWidth = 1;
           ctx.stroke();
-          // Travelling dot
-          const prog = 1-arc.life;
-          const tx=pa.x+(pb2.x-pa.x)*prog+(mx-pa.x)*2*prog*(1-prog);
-          const ty=pa.y+(pb2.y-pa.y)*prog+(my-pa.y)*2*prog*(1-prog);
+          // Travelling dot — correct quadratic bezier: (1-t)²P0 + 2(1-t)t·C + t²P1
+          const prog = 1 - arc.life;
+          const mt = 1 - prog;
+          const tx = mt*mt*pa.x + 2*mt*prog*mx + prog*prog*pb2.x;
+          const ty = mt*mt*pa.y + 2*mt*prog*my + prog*prog*pb2.y;
           ctx.beginPath(); ctx.arc(tx,ty,2,0,Math.PI*2);
           ctx.fillStyle=`${arc.color}cc`; ctx.fill();
         }
