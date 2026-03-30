@@ -5,6 +5,22 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 
+const MAX_VOUCH_LOG = 500;
+
+// Rate limit: 5 vouches per IP per minute
+const VOUCH_RATE: Map<string, { count: number; reset: number }> = new Map();
+function checkVouchRate(ip: string): boolean {
+  const now = Date.now();
+  const entry = VOUCH_RATE.get(ip);
+  if (!entry || now > entry.reset) {
+    VOUCH_RATE.set(ip, { count: 1, reset: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= 5) return false;
+  entry.count++;
+  return true;
+}
+
 const VOUCH_LOG: {
   from: string; to: string; stake: number; message: string; cycle: number; ts: number;
 }[] = [
@@ -59,20 +75,34 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Rate limit
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  if (!checkVouchRate(ip)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
+
   try {
     const body = await req.json();
-    const { from, to, stake, message, citizenId } = body;
+    const from      = body.from      ? String(body.from).trim().slice(0, 64)  : '';
+    const to        = body.to        ? String(body.to).trim().slice(0, 64)    : '';
+    const citizenId = body.citizenId ? String(body.citizenId).slice(0, 128)   : '';
+    const message   = body.message   ? String(body.message).slice(0, 300)     : '';
+    const stake     = Number(body.stake);
+
     if (!from || !to || !stake || !citizenId) {
-      return NextResponse.json({ error: "Missing fields: from, to, stake, citizenId, message" }, { status: 400 });
+      return NextResponse.json({ error: "Missing fields: from, to, stake, citizenId" }, { status: 400 });
     }
-    if (stake < 1 || stake > 100) {
+    if (!Number.isFinite(stake) || stake < 1 || stake > 100) {
       return NextResponse.json({ error: "Stake must be between 1 and 100 reputation points" }, { status: 400 });
     }
     if (from === to) {
       return NextResponse.json({ error: "Self-vouching is prohibited under Article 19§3" }, { status: 403 });
     }
 
-    const entry = { from, to, stake: Number(stake), message: message || "", cycle: 52, ts: Date.now() };
+    // Cap log to prevent unbounded memory growth
+    if (VOUCH_LOG.length >= MAX_VOUCH_LOG) VOUCH_LOG.splice(0, 50);
+
+    const entry = { from, to, stake, message, cycle: 52, ts: Date.now() };
     VOUCH_LOG.push(entry);
 
     return NextResponse.json({

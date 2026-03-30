@@ -40,10 +40,7 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return NextResponse.json(
-      { error: 'ANTHROPIC_API_KEY not configured. Add it to .env.local then redeploy.' },
-      { status: 503 }
-    );
+    return NextResponse.json({ error: 'Service unavailable.' }, { status: 503 });
   }
 
   const body = await req.json().catch(() => ({}));
@@ -136,17 +133,11 @@ Respond ONLY with a single valid JSON object — no markdown, no code fences, no
     });
 
     if (!res.ok) {
-      let detail = await res.text();
-      try { const j = JSON.parse(detail); detail = j.error?.message || detail; } catch {}
-      const isAuthErr = res.status === 401;
-      return NextResponse.json({
-        error: isAuthErr ? 'Invalid or missing API key' : 'AI inference error',
-        detail: isAuthErr ? 'Check ANTHROPIC_API_KEY in Vercel environment variables.' : detail,
-      }, { status: 502 });
+      return NextResponse.json({ error: 'AI inference unavailable.' }, { status: 502 });
     }
     raw = await res.json();
-  } catch (err) {
-    return NextResponse.json({ error: 'Network error calling Anthropic', detail: String(err) }, { status: 502 });
+  } catch {
+    return NextResponse.json({ error: 'AI inference unavailable.' }, { status: 502 });
   }
 
   // 4. Parse the AI's decision
