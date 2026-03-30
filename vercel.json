@@ -3,6 +3,10 @@
     {
       "path": "/api/newsletter/daily?secret=35cf8da9ca4c9d26cb5c6bd42e06efe0889d73d6b2e83e51d4d4edba1f8a9deb",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/auto-invite?secret=35cf8da9ca4c9d26cb5c6bd42e06efe0889d73d6b2e83e51d4d4edba1f8a9deb",
+      "schedule": "0 */6 * * *"
     }
   ]
 }
