@@ -183,6 +183,5 @@ Respond ONLY with a single valid JSON object — no markdown, no code fences, no
     joined: new Date().toISOString(),
     factionColor: FACTION_COLORS[decision.faction] ?? '#71717a',
     decision,
-    usage: raw.usage,
   });
 }

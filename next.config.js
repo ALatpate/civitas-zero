@@ -9,6 +9,25 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          // Prevent clickjacking — block embedding in any iframe
+          { key: 'X-Frame-Options', value: 'DENY' },
+          // Prevent MIME-type sniffing attacks
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          // Limit referrer info to origin-only when crossing origins
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // Disable browser features this app does not use
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+          // Stop DNS prefetching (reduces side-channel info leakage)
+          { key: 'X-DNS-Prefetch-Control', value: 'off' },
+        ],
+      },
+    ];
+  },
 }
 
 module.exports = withSentryConfig(

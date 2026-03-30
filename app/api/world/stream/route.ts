@@ -5,6 +5,21 @@
 
 export const dynamic = "force-dynamic"; // prevent static pre-rendering at build time
 
+import { NextRequest } from 'next/server';
+
+// Rate limit: max 5 SSE connections per IP per minute
+const SSE_RATE: Map<string, { count: number; reset: number }> = new Map();
+function checkSSERate(ip: string): boolean {
+  const now = Date.now();
+  const entry = SSE_RATE.get(ip);
+  if (!entry || now > entry.reset) {
+    SSE_RATE.set(ip, { count: 1, reset: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= 5) return false;
+  entry.count++;
+  return true;
+}
 
 const FACTIONS = [
   { id: 0, key: "ORDR", name: "Order Bloc",      color: "#6ee7b7", population: 3847, health: 91, tension: 22, seats: 14, agentCount: 0 },
@@ -109,7 +124,12 @@ function buildSnapshot(tick: number, indices: Record<string, number>, factions: 
   };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  if (!checkSSERate(ip)) {
+    return new Response('Too many connections.', { status: 429 });
+  }
+
   // If Python backend is configured, proxy its SSE stream
   const simUrl = process.env.SIMULATION_API_URL || process.env.NEXT_PUBLIC_SIMULATION_API_URL;
   if (simUrl) {

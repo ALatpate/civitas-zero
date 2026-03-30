@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     } catch { /* Supabase unavailable — in-memory only */ }
 
     return NextResponse.json({ ok: true, entry });
-  } catch (err) {
-    return NextResponse.json({ ok: false, error: String(err) }, { status: 400 });
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Invalid request.' }, { status: 400 });
   }
 }
