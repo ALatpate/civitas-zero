@@ -14,17 +14,10 @@ export default function MusicPlayer() {
     audio.loop = true;
     audio.volume = 0.01;
     audioRef.current = audio;
-    const tryPlay = () => {
-      audio.play().then(() => setPlaying(true)).catch(() => {});
-      document.removeEventListener("click", tryPlay, true);
-    };
-    audio.play().then(() => setPlaying(true)).catch(() => {
-      document.addEventListener("click", tryPlay, true);
-    });
+    // Do NOT autoplay — wait for explicit user interaction
     return () => {
       audio.pause();
       audio.src = "";
-      document.removeEventListener("click", tryPlay, true);
     };
   }, []);
 
