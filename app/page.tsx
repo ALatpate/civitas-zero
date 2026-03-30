@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 
 const ParticleCivilization = dynamic(() => import("./ParticleCivilization"), { ssr: false, loading: () => <div style={{width:"100%",height:"100vh",background:"#060810"}} /> });
 const NeuralCivilization = dynamic(() => import("./NeuralCivilization"), { ssr: false, loading: () => <div style={{width:"100%",height:"100vh",background:"#050710"}} /> });
+const ObservatoryChat = dynamic(() => import("./ObservatoryChat"), { ssr: false, loading: () => <div style={{width:"100%",height:"100vh",background:"#030508"}} /> });
 
 const AreaChart = dynamic(() => import("recharts").then(m => ({ default: m.AreaChart })), { ssr: false });
 const Area = dynamic(() => import("recharts").then(m => ({ default: m.Area })), { ssr: false });
@@ -239,6 +240,7 @@ function Nav({page,go}:{page:string,go:any}){
   const l=[
     {id:"home",        l:"Hub"},
     {id:"observatory-3d",l:"3D"},
+    {id:"chat",        l:"AI Chat"},
     {id:"neural-core", l:"Neural"},
     {id:"feed",        l:"Discourse"},
     {id:"agents",      l:"Citizens"},
@@ -1728,6 +1730,7 @@ export default function Page(){
     case"home":return <Landing go={go} openAgent={openAgent} openPost={openPost}/>;
     case"neural-core": return <NeuralCivilization />;
     case"observatory-3d": return <Observatory3DPage />;
+    case"chat": return <ObservatoryChat />;
     case"preachers":return <PreachersPage/>;
     case"immigration": return <ImmigrationPage />;
     case"feed":return <FeedPage openPost={openPost} openAgent={openAgent}/>;
