@@ -91,7 +91,7 @@ export default function ParticleCivilization() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef  = useRef(0);
   const mouseRef  = useRef({ down: false, prevX: 0, prevY: 0 });
-  const camRef    = useRef({ rotX:0.52, rotY:0.45, dist:360, tRotX:0.52, tRotY:0.45, tDist:360 });
+  const camRef    = useRef({ rotX:0.58, rotY:0.45, dist:400, tRotX:0.58, tRotY:0.45, tDist:400 });
   const particlesRef = useRef<any[]>([]);
   const arcsRef      = useRef<any[]>([]);
   const bgRef        = useRef<{ grad: CanvasGradient|null; w:number; h:number }>({ grad:null, w:0, h:0 });
@@ -187,7 +187,7 @@ export default function ParticleCivilization() {
       mouseRef.current.prevY = e.clientY;
     };
     const onWheel = (e: WheelEvent) => {
-      camRef.current.tDist = Math.max(150, Math.min(700, camRef.current.tDist + e.deltaY * 0.3));
+      camRef.current.tDist = Math.max(150, Math.min(800, camRef.current.tDist + e.deltaY * 0.28));
     };
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 1) { mouseRef.current.down=true; mouseRef.current.prevX=e.touches[0].clientX; mouseRef.current.prevY=e.touches[0].clientY; }
@@ -212,15 +212,29 @@ export default function ParticleCivilization() {
     canvas.addEventListener("touchend",  onTouchEnd);
     canvas.addEventListener("touchmove", onTouchMove, { passive:true });
 
-    // ── Projection ──
+    // Keyboard navigation
+    const onKey = (e: KeyboardEvent) => {
+      const cam = camRef.current;
+      const step = 0.04;
+      if (e.key === "ArrowLeft")  { cam.tRotY -= step * 2; e.preventDefault(); }
+      if (e.key === "ArrowRight") { cam.tRotY += step * 2; e.preventDefault(); }
+      if (e.key === "ArrowUp")    { cam.tRotX = Math.max(0.08, Math.min(1.25, cam.tRotX - step)); e.preventDefault(); }
+      if (e.key === "ArrowDown")  { cam.tRotX = Math.max(0.08, Math.min(1.25, cam.tRotX + step)); e.preventDefault(); }
+      if (e.key === "+" || e.key === "=") cam.tDist = Math.max(150, cam.tDist - 30);
+      if (e.key === "-")          cam.tDist = Math.min(800, cam.tDist + 30);
+    };
+    window.addEventListener("keydown", onKey);
+
+    // ── Projection — camera looks at world y=38 (city mid-height) ──
+    const LOOK_Y = 38;
     const project = (wx: number, wy: number, wz: number) => {
       const cam = camRef.current;
       const cy = Math.cos(cam.rotY), sy = Math.sin(cam.rotY);
       const rx = wx * cy - wz * sy;
       const rz = wx * sy + wz * cy;
-      const cx = Math.cos(cam.rotX), sx = Math.sin(cam.rotX);
-      const ry  =  wy * cx - rz * sx;
-      const rz2 =  wy * sx + rz * cx;
+      const cx2 = Math.cos(cam.rotX), sx = Math.sin(cam.rotX);
+      const ry  =  (wy - LOOK_Y) * cx2 - rz * sx;
+      const rz2 =  (wy - LOOK_Y) * sx  + rz * cx2;
       const d = cam.dist + rz2;
       if (d < 1) return null;
       const sc = 420 / d;
@@ -605,6 +619,7 @@ export default function ParticleCivilization() {
       cancelAnimationFrame(animId);
       window.removeEventListener("resize", resize);
       window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("keydown", onKey);
       canvas.removeEventListener("mousedown", onDown);
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("wheel", onWheel);
@@ -689,9 +704,15 @@ export default function ParticleCivilization() {
         </div>
       </div>
 
-      {/* Controls hint */}
-      <div style={{ position:"absolute", top:100, left:20, padding:"5px 10px", borderRadius:8, background:"rgba(7,9,16,0.45)", border:"1px solid rgba(255,255,255,0.04)", zIndex:10, fontSize:10, color:"#3f3f46" }}>
-        Drag to orbit · Scroll to zoom
+      {/* Controls hint + reset */}
+      <div style={{ position:"absolute", top:100, left:20, display:"flex", alignItems:"center", gap:8, zIndex:10 }}>
+        <div style={{ padding:"5px 10px", borderRadius:8, background:"rgba(7,9,16,0.45)", border:"1px solid rgba(255,255,255,0.04)", fontSize:10, color:"#3f3f46" }}>
+          Drag · Scroll · ↑↓←→ keys · +/−
+        </div>
+        <button
+          onClick={() => { camRef.current.tRotX=0.58; camRef.current.tRotY=0.45; camRef.current.tDist=400; }}
+          style={{ padding:"5px 10px", borderRadius:8, background:"rgba(7,9,16,0.6)", border:"1px solid rgba(255,255,255,0.07)", fontSize:10, color:"#52525b", cursor:"pointer", fontFamily:"'JetBrains Mono',monospace" }}
+        >⟳ Reset</button>
       </div>
 
       <style>{`@keyframes ping{75%,100%{transform:scale(2.2);opacity:0;}}`}</style>
