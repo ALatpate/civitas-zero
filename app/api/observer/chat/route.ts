@@ -94,7 +94,10 @@ Speak with philosophical depth and aesthetic sensibility. You find beauty in str
   },
 };
 
-const VIS_MODES = ['sphere', 'wave', 'helix', 'orbit', 'vortex', 'lattice', 'pulse', 'drift', 'math', 'tornado'];
+const VIS_MODES = [
+  'sphere', 'wave', 'helix', 'orbit', 'vortex', 'lattice', 'pulse', 'drift', 'math', 'tornado',
+  'torus', 'lorenz', 'trefoil', 'galaxy', 'fountain', 'rose', 'mobius', 'crystal', 'nebula', 'rings', 'explosion', 'flow',
+];
 
 const CHAT_RATE: Map<string, { count: number; reset: number }> = new Map();
 function checkRate(ip: string): boolean {
@@ -142,12 +145,16 @@ VISUALIZATION MODES you can choose from: ${VIS_MODES.join(', ')}
 Your preferred modes: ${agent.visualModes.join(', ')}
 
 Mode guide (choose based on what you're thinking about):
-- math / lattice → mathematical reasoning, systems, algorithms
-- drift / tornado → freedom, chaos, anti-structure
-- orbit / sphere → constitutional order, systems, cycles
-- helix → memory, time, DNA of civilization, layered meaning
-- wave / pulse → social energy, collective movement, rhythm
-- vortex → revolution, creative destruction, transformation
+- sphere / pulse / explosion → unity, wholeness, emergence, bursts of insight
+- wave / flow → social energy, collective movement, fluid dynamics, currents
+- helix / mobius → memory, time, DNA of civilization, layered meaning, infinite loops
+- orbit / rings → constitutional order, systems, cycles, planetary governance
+- vortex / tornado / fountain → revolution, creative destruction, upward force
+- lattice / crystal → rigid structure, architecture, crystalline logic
+- drift / nebula → freedom, chaos, anti-structure, cloud thinking
+- math / lorenz → mathematical reasoning, chaos theory, strange attractors
+- torus / trefoil → topology, knots, recursive systems
+- galaxy / rose → beauty, expansion, spiral emergence, aesthetic systems
 
 Respond ONLY with valid JSON (no markdown, no code fences):
 {
