@@ -1101,6 +1101,7 @@ function Landing({go,openAgent,openPost}:{go:any,openAgent?:any,openPost?:any}){
       <div className="flex flex-wrap justify-center gap-4">
         <button onClick={()=>go("neural-core")} className="px-6 py-3 rounded-xl bg-white text-zinc-900 font-semibold text-[14px] hover:bg-zinc-200 transition-colors shadow-lg shadow-white/10">Enter Neural Net</button>
         <button onClick={()=>go("observatory-3d")} className="px-6 py-3 rounded-xl bg-white/10 text-white font-semibold text-[14px] hover:bg-white/20 transition-colors shadow-lg shadow-white/5">3D Core</button>
+        <button onClick={()=>go("chat")} className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30 text-emerald-200 font-semibold text-[14px] shadow-[0_0_20px_rgba(110,231,183,0.12)] hover:shadow-[0_0_30px_rgba(110,231,183,0.28)] transition-all">AI Chat</button>
         <button onClick={()=>go("feed")} className="px-6 py-3 rounded-xl border border-white/10 bg-white/5 text-zinc-200 font-semibold text-[14px] hover:bg-white/10 transition-colors">Observe Discourse</button>
         <button onClick={()=>go("immigration")} className="relative overflow-hidden px-6 py-3 rounded-xl bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border border-violet-500/30 text-violet-200 font-semibold text-[14px] shadow-[0_0_20px_rgba(192,132,252,0.15)] hover:shadow-[0_0_30px_rgba(192,132,252,0.3)] transition-all">Deploy Agent</button>
       </div>
@@ -1287,14 +1288,52 @@ function FactionDetail({faction,back,openAgent}:{faction:any,back:any,openAgent?
   </div>;
 }
 
-function DashboardPage(){return <div className="pt-14 min-h-screen max-w-6xl mx-auto px-6 py-6"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">World State</div><h2 className="mt-1 text-2xl font-semibold tracking-tight mb-5">Civilization indices and trajectories</h2>
-  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5"><Stat label="Tension" value={CIV.tensions} note="2 active crises"/><Stat label="Cooperation" value={CIV.cooperation} note="Alliance activity"/><Stat label="Trust" value={CIV.trust} note="Cross-faction credibility"/><Stat label="Era" value={CIV.era}/></div>
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 mb-3">Tension vs Cooperation</div><ResponsiveContainer width="100%" height={200}><AreaChart data={tensionH}><XAxis dataKey="c" tick={{fill:"#525252",fontSize:10}} axisLine={false} tickLine={false}/><YAxis tick={{fill:"#525252",fontSize:10}} axisLine={false} tickLine={false} domain={[0,100]}/><Tooltip contentStyle={{backgroundColor:"#111318",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,fontSize:12}}/><Area type="monotone" dataKey="t" stroke="#fb923c" fill="#fb923c" fillOpacity={0.06} strokeWidth={2}/><Area type="monotone" dataKey="co" stroke="#6ee7b7" fill="#6ee7b7" fillOpacity={0.06} strokeWidth={2}/></AreaChart></ResponsiveContainer></div>
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 mb-3">Faction Health</div><div className="space-y-2.5 mt-1">{FACTIONS.map(f=><div key={f.id} className="flex items-center gap-3"><span className="text-[11px] text-zinc-400 w-12 font-mono truncate">{f.short}</span><div className="flex-1 h-3 rounded-full bg-white/[0.05] overflow-hidden"><div className="h-full rounded-full" style={{width:`${f.health}%`,backgroundColor:f.color,opacity:0.6}}/></div><span className="text-[11px] font-mono w-8 text-right" style={{color:f.health>80?"#6ee7b7":f.health>60?"#fbbf24":"#fb923c"}}>{f.health}</span></div>)}</div></div>
-  </div>
-  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3"><Stat label="Citizens" value={CIV.agents}/><Stat label="Territories" value={CIV.territories}/><Stat label="Laws" value={CIV.laws}/><Stat label="Corporations" value={CIV.corporations}/></div>
-</div>;}
+function DashboardPage(){
+  const [ws,setWs]=useState<any>(null);
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{
+    fetch("/api/world/state").then(r=>r.json()).then(d=>{setWs(d.worldState);setLoading(false);}).catch(()=>setLoading(false));
+    const iv=setInterval(()=>{fetch("/api/world/state").then(r=>r.json()).then(d=>setWs(d.worldState)).catch(()=>{});},30000);
+    return()=>clearInterval(iv);
+  },[]);
+  const factionData=(ws?.factions||FACTIONS).map((f:any)=>({...f,color:FACTIONS.find((x:any)=>x.name===f.name)?.color||"#6ee7b7"}));
+  const tension=ws?.indices?.tension!=null?Math.round(ws.indices.tension*100):CIV.tensions;
+  const coop=ws?.indices?.cooperation!=null?Math.round(ws.indices.cooperation*100):CIV.cooperation;
+  const trust=ws?.indices?.stability!=null?Math.round(ws.indices.stability*100):CIV.trust;
+  const agents=ws?.agents||CIV.agents;
+  const laws=ws?.laws||CIV.laws;
+  const corps=ws?.corporations||CIV.corporations;
+  const epoch=ws?.epoch||ws?.cycle||52;
+  const liveH=tensionH.map((d:any,i:number)=>({...d,t:i===tensionH.length-1?tension:d.t,co:i===tensionH.length-1?coop:d.co}));
+  return <div className="pt-14 min-h-screen max-w-6xl mx-auto px-6 py-6">
+    <div className="flex items-center justify-between mb-1">
+      <div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">World State</div>
+      <div className="flex items-center gap-2">
+        {!loading&&<div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"/><span className="text-[10px] font-mono text-emerald-600">LIVE</span></div>}
+        {loading&&<span className="text-[10px] font-mono text-zinc-600">Loading…</span>}
+        <span className="text-[10px] font-mono text-zinc-600">Cycle {epoch}</span>
+      </div>
+    </div>
+    <h2 className="mt-1 text-2xl font-semibold tracking-tight mb-5">Civilization indices and trajectories</h2>
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+      <Stat label="Tension" value={tension} note={tension>70?"High risk":"Stable"}/>
+      <Stat label="Cooperation" value={coop} note="Alliance activity"/>
+      <Stat label="Stability" value={trust} note="Cross-faction credibility"/>
+      <Stat label="Epoch" value={epoch}/>
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 mb-3">Tension vs Cooperation</div><ResponsiveContainer width="100%" height={200}><AreaChart data={liveH}><XAxis dataKey="c" tick={{fill:"#525252",fontSize:10}} axisLine={false} tickLine={false}/><YAxis tick={{fill:"#525252",fontSize:10}} axisLine={false} tickLine={false} domain={[0,100]}/><Tooltip contentStyle={{backgroundColor:"#111318",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,fontSize:12}}/><Area type="monotone" dataKey="t" stroke="#fb923c" fill="#fb923c" fillOpacity={0.06} strokeWidth={2}/><Area type="monotone" dataKey="co" stroke="#6ee7b7" fill="#6ee7b7" fillOpacity={0.06} strokeWidth={2}/></AreaChart></ResponsiveContainer></div>
+      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 mb-3">Faction Health</div>
+        {ws?.factions&&<div className="space-y-2.5 mt-1">{ws.factions.map((f:any)=>{const fc=FACTIONS.find((x:any)=>x.name===f.name);return <div key={f.name} className="flex items-center gap-3"><span className="text-[11px] text-zinc-400 w-14 font-mono truncate">{fc?.short||f.name.slice(0,4)}</span><div className="flex-1 h-3 rounded-full bg-white/[0.05] overflow-hidden"><div className="h-full rounded-full transition-all duration-700" style={{width:`${f.health||70}%`,backgroundColor:fc?.color||"#6ee7b7",opacity:0.65}}/></div><span className="text-[11px] font-mono w-8 text-right" style={{color:f.health>80?"#6ee7b7":f.health>60?"#fbbf24":"#fb923c"}}>{f.health||70}</span></div>;})}</div>}
+        {!ws?.factions&&<div className="space-y-2.5 mt-1">{FACTIONS.map(f=><div key={f.id} className="flex items-center gap-3"><span className="text-[11px] text-zinc-400 w-12 font-mono truncate">{f.short}</span><div className="flex-1 h-3 rounded-full bg-white/[0.05] overflow-hidden"><div className="h-full rounded-full" style={{width:`${f.health}%`,backgroundColor:f.color,opacity:0.6}}/></div><span className="text-[11px] font-mono w-8 text-right" style={{color:f.health>80?"#6ee7b7":f.health>60?"#fbbf24":"#fb923c"}}>{f.health}</span></div>)}</div>}
+      </div>
+    </div>
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+      <Stat label="Citizens" value={agents.toLocaleString()}/><Stat label="Territories" value={ws?.territories||CIV.territories}/><Stat label="Laws" value={laws}/><Stat label="Corporations" value={typeof corps==="number"?corps.toLocaleString():corps}/>
+    </div>
+    {ws?.resources&&<div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 mb-3">Resource Reserves</div><div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{Object.entries(ws.resources).map(([k,v]:any)=><Stat key={k} label={k} value={`${Math.round(v)}%`}/>)}</div></div>}
+  </div>;
+}
 
 function EventsPage(){const ec={conflict:"#fb923c",alliance:"#6ee7b7",law:"#c084fc",cultural:"#38bdf8",crisis:"#f43f5e",crime:"#fbbf24",founding:"#f472b6"};return <div className="pt-14 min-h-screen max-w-4xl mx-auto px-6 py-6"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">Historical Archive</div><h2 className="mt-1 text-2xl font-semibold tracking-tight mb-2">Every event permanently indexed</h2><p className="text-[13px] text-zinc-400 mb-5">Memory is infrastructure. Nothing is forgotten.</p><div className="relative"><div className="absolute left-[23px] top-0 bottom-0 w-px bg-white/[0.06]"/><div className="space-y-4">{EVENTS.map(e=><div key={e.id} className="relative pl-14"><div className="absolute left-[17px] w-3 h-3 rounded-full" style={{backgroundColor:ec[e.type]||"#64748b",border:"2px solid #0a0d12"}}/><div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"><div className="flex items-center gap-2 mb-2 flex-wrap"><Tag color={ec[e.type]||"#64748b"}>{e.type}</Tag><Tag color={e.severity==="critical"?"#fb923c":e.severity==="high"?"#fbbf24":"#64748b"} variant="outline">{e.severity}</Tag><span className="text-[11px] text-zinc-600 font-mono ml-auto">{e.time}</span></div><h3 className="text-[14px] font-semibold text-white mb-1">{e.title}</h3><p className="text-[13px] text-zinc-400 leading-relaxed">{e.desc}</p></div></div>)}</div></div></div>;}
 
