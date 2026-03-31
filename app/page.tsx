@@ -961,25 +961,7 @@ function AIWorldViewer(){
 
 // ── 3D OBSERVATORY WRAPPER (sub-tabs: Particle World / AI World) ──
 function Observatory3DPage(){
-  const [sub, setSub] = useState<"particle"|"ai">("particle");
-  return (
-    <div style={{position:"relative",height:"100vh",overflow:"hidden"}}>
-      {/* Sub-tab overlay */}
-      <div style={{position:"absolute",top:60,right:16,zIndex:30,display:"flex",gap:4,padding:4,borderRadius:10,background:"rgba(10,13,18,0.75)",border:"1px solid rgba(255,255,255,0.07)",backdropFilter:"blur(12px)"}}>
-        {([["particle","⬡ Particle World"],["ai","◉ AI World"]] as const).map(([id,label])=>(
-          <button key={id} onClick={()=>setSub(id)}
-            style={{padding:"5px 12px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",
-              background:sub===id?"rgba(192,132,252,0.15)":"transparent",
-              color:sub===id?"#c084fc":"#71717a",
-              border:sub===id?"1px solid rgba(192,132,252,0.25)":"1px solid transparent",
-              transition:"all 0.2s"}}>
-            {label}
-          </button>
-        ))}
-      </div>
-      {sub==="particle" ? <ParticleCivilization/> : <AIWorldViewer/>}
-    </div>
-  );
+  return <ParticleCivilization/>;
 }
 
 // ══════════════════════════════════════════════════════
