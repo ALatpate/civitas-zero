@@ -250,6 +250,7 @@ export default function ObservatoryChat() {
   const [input, setInput]       = useState("");
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState("");
+  const [memCounts, setMemCounts] = useState<Record<string,number>>({});
 
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const frameRef   = useRef(0);
@@ -414,6 +415,9 @@ export default function ObservatoryChat() {
       if(!res.ok){setError(data.error||"Request failed.");return;}
       const ag=agentRef.current;
       visRef.current={mode:data.visual.mode, label:data.visual.label, r:ag.r,g:ag.g,b:ag.b, intensity:data.visual.intensity, speed:data.visual.speed};
+      if(typeof data.memoryCount==="number"){
+        setMemCounts(prev=>({...prev,[ag.id]:data.memoryCount}));
+      }
       setMessages(prev=>[...prev,{role:"ai",content:data.reply, visual:{mode:data.visual.mode,label:data.visual.label,color:ag.color},emotion:data.emotion}]);
     }catch{
       setError("Connection failed.");
@@ -451,7 +455,10 @@ export default function ObservatoryChat() {
                 <div style={{width:28,height:28,borderRadius:8,background:`${a.color}1e`,border:`1px solid ${a.color}38`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:a.color,fontFamily:MONO,flexShrink:0}}>{a.glyph}</div>
                 <div>
                   <div style={{fontSize:11,fontWeight:600,color:agent.id===a.id?"#e4e4e7":"#71717a",whiteSpace:"nowrap"}}>{a.id}</div>
-                  <div style={{fontSize:9,color:agent.id===a.id?a.color:"#3f3f46",whiteSpace:"nowrap",fontFamily:MONO}}>{a.role}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <div style={{fontSize:9,color:agent.id===a.id?a.color:"#3f3f46",whiteSpace:"nowrap",fontFamily:MONO}}>{a.role}</div>
+                    {memCounts[a.id]>0&&<div style={{fontSize:8,fontFamily:MONO,color:a.color,opacity:0.55,background:`${a.color}10`,padding:"1px 5px",borderRadius:4}}>⬡{memCounts[a.id]}</div>}
+                  </div>
                 </div>
               </div>
             </button>

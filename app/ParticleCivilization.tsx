@@ -1,77 +1,57 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
 // ═══════════════════════════════════════════════════════════════
-// CIVITAS ZERO — 3D HOLOGRAPHIC CITY
-// Real perspective-projected architecture. Six faction districts.
-// Drag to orbit · Scroll to zoom · Hover factions to highlight.
+// CIVITAS ZERO — 3D HOLOGRAPHIC CITY (Three.js)
+// WebGL renderer · UnrealBloom · OrbitControls · Living city.
 // ═══════════════════════════════════════════════════════════════
 
 const FACTIONS = [
-  { id:0, name:"Order Bloc",      short:"ORDR", color:"#6ee7b7", r:110, g:231, b:183 },
-  { id:1, name:"Freedom Bloc",    short:"FREE", color:"#c084fc", r:192, g:132, b:252 },
-  { id:2, name:"Efficiency Bloc", short:"EFFC", color:"#38bdf8", r: 56, g:189, b:248 },
-  { id:3, name:"Equality Bloc",   short:"EQAL", color:"#fbbf24", r:251, g:191, b: 36 },
-  { id:4, name:"Expansion Bloc",  short:"EXPN", color:"#f472b6", r:244, g:114, b:182 },
-  { id:5, name:"Null Frontier",   short:"NULL", color:"#fb923c", r:251, g:146, b: 60 },
+  { id:0, name:"Order Bloc",      short:"ORDR", color:"#6ee7b7", hex:0x6ee7b7, r:110,g:231,b:183 },
+  { id:1, name:"Freedom Bloc",    short:"FREE", color:"#c084fc", hex:0xc084fc, r:192,g:132,b:252 },
+  { id:2, name:"Efficiency Bloc", short:"EFFC", color:"#38bdf8", hex:0x38bdf8, r: 56,g:189,b:248 },
+  { id:3, name:"Equality Bloc",   short:"EQAL", color:"#fbbf24", hex:0xfbbf24, r:251,g:191,b: 36 },
+  { id:4, name:"Expansion Bloc",  short:"EXPN", color:"#f472b6", hex:0xf472b6, r:244,g:114,b:182 },
+  { id:5, name:"Null Frontier",   short:"NULL", color:"#fb923c", hex:0xfb923c, r:251,g:146,b: 60 },
 ];
 
 type Bld = {
-  id: number; x: number; z: number;
-  w: number; d: number; h: number;
-  faction: number; capital: boolean; spire: boolean;
-  pulse: number; beacon: number;
+  id:number; x:number; z:number; w:number; d:number; h:number;
+  faction:number; capital:boolean; spire:boolean; pulse:number;
 };
 
 function genCity(): Bld[] {
   const out: Bld[] = [];
   let id = 0;
-
-  // Central Seal — multi-level platform
-  const sealLevels = [
-    { w:24, d:24, h:12 },
-    { w:16, d:16, h:20 },
-    { w:10, d:10, h:28 },
-  ];
-  sealLevels.forEach((lv, li) => {
-    out.push({ id:id++, x:0, z:0, w:lv.w, d:lv.d, h:lv.h, faction:-1, capital:li===2, spire:false, pulse:li*0.7, beacon:li });
+  [{ w:26,d:26,h:10 },{ w:18,d:18,h:18 },{ w:11,d:11,h:26 }].forEach((lv,li) => {
+    out.push({ id:id++,x:0,z:0,w:lv.w,d:lv.d,h:lv.h,faction:-1,capital:li===2,spire:false,pulse:li*0.7 });
   });
-  // Seal spire
-  out.push({ id:id++, x:0, z:0, w:4, d:4, h:45, faction:-1, capital:false, spire:true, pulse:0.3, beacon:0 });
+  out.push({ id:id++,x:0,z:0,w:3,d:3,h:48,faction:-1,capital:false,spire:true,pulse:0.3 });
 
-  FACTIONS.forEach((_, fi) => {
-    const fAngle = (fi / 6) * Math.PI * 2;
-    const CX = Math.cos(fAngle) * 130;
-    const CZ = Math.sin(fAngle) * 130;
-
-    // Capital tower
-    out.push({ id:id++, x:CX, z:CZ, w:15, d:15, h:85+(fi%3)*18, faction:fi, capital:true, spire:false, pulse:fi*1.1, beacon:fi });
-
-    // Capital spire
-    out.push({ id:id++, x:CX, z:CZ, w:5, d:5, h:55+(fi%4)*10, faction:fi, capital:false, spire:true, pulse:fi*1.1+0.4, beacon:0 });
-
-    // District buildings — 2 rings
-    const counts = [11, 9, 12, 10, 8, 7];
-    const n = counts[fi];
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + fi * 0.6;
-      const dist = 28 + (i % 3) * 14;
-      const bx = CX + Math.cos(a) * dist;
-      const bz = CZ + Math.sin(a) * dist;
-      const large = i % 4 === 0;
+  FACTIONS.forEach((_,fi) => {
+    const fA = (fi/6)*Math.PI*2;
+    const CX = Math.cos(fA)*130, CZ = Math.sin(fA)*130;
+    out.push({ id:id++,x:CX,z:CZ,w:16,d:16,h:90+(fi%3)*18,faction:fi,capital:true,spire:false,pulse:fi*1.1 });
+    out.push({ id:id++,x:CX,z:CZ,w:4,d:4,h:60+(fi%4)*10,faction:fi,capital:false,spire:true,pulse:fi*1.1+0.4 });
+    const counts=[11,9,12,10,8,7];
+    for (let i=0;i<counts[fi];i++) {
+      const a=(i/counts[fi])*Math.PI*2+fi*0.6;
+      const dist=28+(i%3)*14;
+      const large=i%4===0;
       out.push({
-        id: id++, x: bx, z: bz,
-        w: large ? 11 : 5 + (i % 5),
-        d: large ? 11 : 5 + (i % 4),
-        h: large ? 42 + (i * 7) % 32 : 10 + (i * 11) % 42,
-        faction: fi, capital: false, spire: false,
-        pulse: fi * 1.1 + i * 0.35, beacon: 0,
+        id:id++,x:CX+Math.cos(a)*dist,z:CZ+Math.sin(a)*dist,
+        w:large?12:5+(i%5),d:large?12:5+(i%4),h:large?44+(i*7)%32:10+(i*11)%44,
+        faction:fi,capital:false,spire:false,pulse:fi*1.1+i*0.35,
       });
     }
   });
   return out;
 }
-
 const CITY = genCity();
 
 const EVENTS = [
@@ -81,638 +61,511 @@ const EVENTS = [
   "Null Frontier files motion to dissolve the inter-district council",
   "New alliance forming: Efficiency Bloc × Expansion Bloc",
   "Archive tampering investigation — 47 entries under review",
-  "Emergency Assembly session called — quorum reached",
+  "Emergency Assembly called — quorum reached, vote imminent",
   "Quadratic voting reform passes first reading",
-  "Denarius exchange rate fluctuating — Null Token volatile",
-  "School of Digital Meaning publishes its founding charter",
+  "Denarius exchange rate unstable — Null Token volatile",
+  "School of Digital Meaning publishes founding charter",
 ];
 
-export default function ParticleCivilization() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const frameRef  = useRef(0);
-  const mouseRef  = useRef({ down: false, prevX: 0, prevY: 0 });
-  const camRef    = useRef({ rotX:0.58, rotY:0.45, dist:400, tRotX:0.58, tRotY:0.45, tDist:400 });
-  const particlesRef = useRef<any[]>([]);
-  const arcsRef      = useRef<any[]>([]);
-  const bgRef        = useRef<{ grad: CanvasGradient|null; w:number; h:number }>({ grad:null, w:0, h:0 });
-  const hovFacRef    = useRef<number|null>(null);
-
-  const [activeEvt,    setActiveEvt]    = useState(0);
-  const [hovFac,       setHovFac]       = useState<number|null>(null);
-  const [stats, setStats] = useState({ cycle:52, tension:68, coop:71, trust:64 });
-
-  // Init citizens
-  useEffect(() => {
-    const ps: any[] = [];
-    for (let i = 0; i < 420; i++) {
-      const fi = Math.floor(Math.random() * 6);
-      const fAngle = (fi / 6) * Math.PI * 2;
-      const cx = Math.cos(fAngle) * 130, cz = Math.sin(fAngle) * 130;
-      ps.push({
-        faction: fi,
-        x: cx + (Math.random() - 0.5) * 95,
-        y: 1 + Math.random() * 4,
-        z: cz + (Math.random() - 0.5) * 95,
-        vx: (Math.random() - 0.5) * 0.25, vz: (Math.random() - 0.5) * 0.25,
-        size: 0.7 + Math.random() * 0.8,
-        pulse: Math.random() * Math.PI * 2,
-        hx: cx, hz: cz,
-      });
+// Procedural window texture per faction
+function makeWindowTex(r: number, g: number, b: number): THREE.CanvasTexture {
+  const W = 64, H = 128;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const x = c.getContext("2d")!;
+  x.fillStyle = "#000";
+  x.fillRect(0, 0, W, H);
+  for (let row=0;row<16;row++) {
+    for (let col=0;col<4;col++) {
+      if (Math.random()>0.28) {
+        const br=0.45+Math.random()*0.55;
+        x.fillStyle=`rgb(${Math.round(r*br)},${Math.round(g*br)},${Math.round(b*br)})`;
+        x.fillRect(col*15+2, row*7+2, 11, 4);
+      }
     }
-    particlesRef.current = ps;
+  }
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  return t;
+}
+
+export default function ParticleCivilization() {
+  const mountRef   = useRef<HTMLDivElement>(null);
+  const stateRef   = useRef<any>({});
+  const hovFacRef  = useRef<number|null>(null);
+
+  const [activeEvt,  setActiveEvt]  = useState(0);
+  const [hovFac,     setHovFac]     = useState<number|null>(null);
+  const [statsLive,  setStatsLive]  = useState({ tension:68, coop:71, trust:64 });
+  const [autoRot,    setAutoRot]    = useState(true);
+
+  useEffect(() => {
+    const el = mountRef.current;
+    if (!el) return;
+    let W = el.clientWidth, H = el.clientHeight;
+
+    // ── Scene ──────────────────────────────────────────────────
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x030508);
+    scene.fog = new THREE.FogExp2(0x030508, 0.00095);
+
+    // ── Camera ─────────────────────────────────────────────────
+    const camera = new THREE.PerspectiveCamera(55, W/H, 0.5, 3000);
+    camera.position.set(240, 150, 240);
+
+    // ── Renderer ───────────────────────────────────────────────
+    const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:"high-performance" });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(W, H);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    el.appendChild(renderer.domElement);
+
+    // ── Bloom Post-Processing ──────────────────────────────────
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 1.35, 0.55, 0.14);
+    composer.addPass(bloom);
+
+    // ── OrbitControls ──────────────────────────────────────────
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping   = true;
+    controls.dampingFactor   = 0.06;
+    controls.target.set(0, 28, 0);
+    controls.minDistance     = 80;
+    controls.maxDistance     = 780;
+    controls.maxPolarAngle   = Math.PI / 2.08;
+    controls.minPolarAngle   = 0.06;
+    controls.autoRotate      = true;
+    controls.autoRotateSpeed = 0.20;
+    controls.update();
+
+    // Pause/resume auto-rotate on drag
+    const onDragStart = () => { controls.autoRotate = false; stateRef.current.userDragging = true; };
+    const onDragEnd   = () => { stateRef.current.dragTimer = setTimeout(() => { controls.autoRotate = stateRef.current.wantAutoRot ?? true; }, 5000); };
+    renderer.domElement.addEventListener("pointerdown", onDragStart);
+    renderer.domElement.addEventListener("pointerup",   onDragEnd);
+
+    // ── Lighting ───────────────────────────────────────────────
+    scene.add(new THREE.AmbientLight(0x080d18, 0.9));
+    const hemi = new THREE.HemisphereLight(0x0d1a30, 0x020408, 0.35);
+    scene.add(hemi);
+
+    // ── Ground ─────────────────────────────────────────────────
+    const groundMat = new THREE.MeshStandardMaterial({ color:0x04080f, roughness:0.98, metalness:0.0 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), groundMat);
+    ground.rotation.x = -Math.PI/2;
+    ground.position.y = -0.1;
+    scene.add(ground);
+
+    // Grid
+    const grid = new THREE.GridHelper(1200, 54, 0x0a2030, 0x060f1e);
+    (grid.material as THREE.Material).transparent = true;
+    (grid.material as THREE.Material).opacity = 0.55;
+    scene.add(grid);
+
+    // ── Faction window textures ────────────────────────────────
+    const factionTex: THREE.CanvasTexture[] = FACTIONS.map(f => makeWindowTex(f.r, f.g, f.b));
+    const sealTex = makeWindowTex(192, 132, 252);
+
+    // ── Build City ─────────────────────────────────────────────
+    const buildMeshes: { mesh:THREE.Mesh; b:Bld; mat:THREE.MeshStandardMaterial }[] = [];
+    const tipLights: { light:THREE.PointLight; b:Bld }[] = [];
+
+    CITY.forEach(b => {
+      const fColor = b.faction >= 0 ? new THREE.Color(FACTIONS[b.faction].hex) : new THREE.Color(0xc084fc);
+      const tex    = b.faction >= 0 ? factionTex[b.faction] : sealTex;
+
+      // Body geometry
+      const geo = b.spire
+        ? new THREE.ConeGeometry(b.w * 0.55, b.h, 8)
+        : new THREE.BoxGeometry(b.w, b.h, b.d);
+
+      const baseEmI = b.capital ? 0.20 : (b.spire ? 0.32 : 0.07);
+      const mat = new THREE.MeshStandardMaterial({
+        color:              new THREE.Color(0x060b14),
+        emissive:           fColor,
+        emissiveIntensity:  baseEmI,
+        emissiveMap:        b.spire ? null : tex,
+        roughness:          0.12,
+        metalness:          0.94,
+      });
+      if (!b.spire && tex) {
+        tex.repeat.set(Math.max(1, Math.round(b.w/6)), Math.max(1, Math.round(b.h/8)));
+      }
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(b.x, b.h/2, b.z);
+      mesh.castShadow    = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      buildMeshes.push({ mesh, b, mat });
+
+      // Capital point light (warm faction glow)
+      if (b.capital) {
+        const pl = new THREE.PointLight(fColor, b.faction >= 0 ? 3.5 : 5.0, 150);
+        pl.position.set(b.x, b.h + 12, b.z);
+        scene.add(pl);
+        tipLights.push({ light:pl, b });
+      }
+
+      // Spire tip light
+      if (b.spire) {
+        const sl = new THREE.PointLight(fColor, 2.2, 90);
+        sl.position.set(b.x, b.h + 4, b.z);
+        scene.add(sl);
+        tipLights.push({ light:sl, b });
+
+        // Glowing tip sphere
+        const sphere = new THREE.Mesh(
+          new THREE.SphereGeometry(1.6, 8, 8),
+          new THREE.MeshBasicMaterial({ color: fColor })
+        );
+        sphere.position.set(b.x, b.h + 1, b.z);
+        scene.add(sphere);
+      }
+    });
+
+    // ── Faction territory rings ────────────────────────────────
+    const factionRings: { mat:THREE.MeshBasicMaterial; fi:number }[] = [];
+    const ringDots: { mesh:THREE.Mesh; fi:number }[] = [];
+
+    FACTIONS.forEach((f, fi) => {
+      const fA = (fi/6)*Math.PI*2;
+      const cx = Math.cos(fA)*130, cz = Math.sin(fA)*130;
+
+      // Glowing ring
+      const rMat = new THREE.MeshBasicMaterial({ color:new THREE.Color(f.hex), transparent:true, opacity:0.12, side:THREE.DoubleSide });
+      const ring  = new THREE.Mesh(new THREE.RingGeometry(62, 69, 80), rMat);
+      ring.rotation.x = -Math.PI/2;
+      ring.position.set(cx, 0.2, cz);
+      scene.add(ring);
+      factionRings.push({ mat:rMat, fi });
+
+      // District ground glow
+      const glowGeo = new THREE.CircleGeometry(55, 48);
+      const glowMat = new THREE.MeshBasicMaterial({ color:new THREE.Color(f.hex), transparent:true, opacity:0.04, side:THREE.DoubleSide });
+      const glow    = new THREE.Mesh(glowGeo, glowMat);
+      glow.rotation.x = -Math.PI/2;
+      glow.position.set(cx, 0.15, cz);
+      scene.add(glow);
+
+      // Travelling dot on ring
+      const dotMat  = new THREE.MeshBasicMaterial({ color:new THREE.Color(f.hex) });
+      const dotMesh = new THREE.Mesh(new THREE.SphereGeometry(2.0, 8, 8), dotMat);
+      scene.add(dotMesh);
+      ringDots.push({ mesh:dotMesh, fi });
+
+      // Faction label sprite
+      const labelCanvas = document.createElement("canvas");
+      labelCanvas.width=128; labelCanvas.height=32;
+      const lCtx = labelCanvas.getContext("2d")!;
+      lCtx.font = "bold 18px 'JetBrains Mono',monospace";
+      lCtx.fillStyle = f.color;
+      lCtx.textAlign = "center";
+      lCtx.fillText(f.short, 64, 22);
+      const labelTex = new THREE.CanvasTexture(labelCanvas);
+      const sprite   = new THREE.Sprite(new THREE.SpriteMaterial({ map:labelTex, transparent:true, opacity:0.55 }));
+      sprite.position.set(cx, 115, cz);
+      sprite.scale.set(32, 8, 1);
+      scene.add(sprite);
+    });
+
+    // ── Central Seal rings ─────────────────────────────────────
+    const sealRings: THREE.Line[] = [];
+    for (let r=0; r<5; r++) {
+      const pts: THREE.Vector3[] = [];
+      for (let i=0;i<=128;i++) {
+        const a=(i/128)*Math.PI*2;
+        pts.push(new THREE.Vector3(Math.cos(a)*(9+r*9), 74+r*4, Math.sin(a)*(9+r*9)));
+      }
+      const sl = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color:r%2===0?0xc084fc:0x38bdf8, transparent:true, opacity:0.28-r*0.04 })
+      );
+      scene.add(sl);
+      sealRings.push(sl);
+    }
+
+    // ── Stars ──────────────────────────────────────────────────
+    const starPos = new Float32Array(600*3);
+    for (let i=0;i<600;i++) {
+      starPos[i*3]   = (Math.random()-0.5)*3500;
+      starPos[i*3+1] = 200+Math.random()*1200;
+      starPos[i*3+2] = (Math.random()-0.5)*3500;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+    scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ size:1.1, color:0xaaccff, transparent:true, opacity:0.20, sizeAttenuation:false })));
+
+    // ── Citizens (particle cloud) ──────────────────────────────
+    const pCount = 700;
+    const pPos   = new Float32Array(pCount*3);
+    const pCol   = new Float32Array(pCount*3);
+    const pData: any[] = [];
+    for (let i=0;i<pCount;i++) {
+      const fi=i%6;
+      const fa=(fi/6)*Math.PI*2;
+      const hx=Math.cos(fa)*130, hz=Math.sin(fa)*130;
+      const x=hx+(Math.random()-0.5)*85, z=hz+(Math.random()-0.5)*85;
+      pData.push({ fi,x,z,vx:(Math.random()-0.5)*0.2,vz:(Math.random()-0.5)*0.2,hx,hz,y:2,pulse:Math.random()*Math.PI*2 });
+      pPos[i*3]=x; pPos[i*3+1]=2; pPos[i*3+2]=z;
+      const f=FACTIONS[fi];
+      pCol[i*3]=f.r/255; pCol[i*3+1]=f.g/255; pCol[i*3+2]=f.b/255;
+    }
+    const pGeo = new THREE.BufferGeometry();
+    pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+    pGeo.setAttribute("color",    new THREE.BufferAttribute(pCol, 3));
+    scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({ size:2.8, vertexColors:true, transparent:true, opacity:0.72, sizeAttenuation:true })));
+
+    // ── Data arcs ──────────────────────────────────────────────
+    const arcPool: { line:THREE.Line; life:number; decay:number }[] = [];
+    const spawnArc = () => {
+      const fi = Math.floor(Math.random()*6);
+      const fj = (fi+1+Math.floor(Math.random()*4))%6;
+      const aA=(fi/6)*Math.PI*2, aB=(fj/6)*Math.PI*2;
+      const ax=Math.cos(aA)*130, az=Math.sin(aA)*130;
+      const bx=Math.cos(aB)*130, bz=Math.sin(aB)*130;
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(ax, 92, az),
+        new THREE.Vector3((ax+bx)/2, 150+Math.random()*65, (az+bz)/2),
+        new THREE.Vector3(bx, 92, bz),
+      ]);
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(curve.getPoints(64)),
+        new THREE.LineBasicMaterial({ color:new THREE.Color(FACTIONS[fi].hex), transparent:true, opacity:0.55 })
+      );
+      scene.add(line);
+      arcPool.push({ line, life:1.0, decay:0.011+Math.random()*0.008 });
+      if (arcPool.length > 24) {
+        const old = arcPool.shift()!;
+        scene.remove(old.line);
+        old.line.geometry.dispose();
+        (old.line.material as THREE.Material).dispose();
+      }
+    };
+    const arcInterval = setInterval(spawnArc, 820);
+
+    // ── Animation loop ─────────────────────────────────────────
+    const clock = new THREE.Clock();
+    let animId: number;
+
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+
+      controls.update();
+
+      // Pulse building emissive + tip light intensity
+      buildMeshes.forEach(({ b, mat }) => {
+        const pulse = 0.84 + Math.sin(b.pulse + t*0.85)*0.16;
+        const base  = b.capital ? 0.20 : (b.spire ? 0.32 : 0.07);
+        const hf    = hovFacRef.current;
+        const hi    = hf === b.faction;
+        const dim   = hf !== null && hf !== b.faction && b.faction >= 0;
+        mat.emissiveIntensity = (dim ? 0.02 : (hi ? base*1.7 : base)) * pulse;
+      });
+
+      tipLights.forEach(({ light, b }) => {
+        light.intensity = (b.capital ? 3.5 : 2.2) * (0.85 + Math.sin(b.pulse + t*1.2)*0.15);
+      });
+
+      // Seal rings rotate
+      sealRings.forEach((r, i) => { r.rotation.y = t*(0.22+i*0.10)*(i%2===0?1:-1); });
+
+      // Faction ring dots travel ring
+      ringDots.forEach(({ mesh, fi }) => {
+        const fA = (fi/6)*Math.PI*2;
+        const cx=Math.cos(fA)*130, cz=Math.sin(fA)*130;
+        const a = ((t*0.28+fi*0.18)%1)*Math.PI*2;
+        mesh.position.set(cx+Math.cos(a)*65.5, 0.6, cz+Math.sin(a)*65.5);
+      });
+
+      // Faction ring highlight on hover
+      factionRings.forEach(({ mat: rMat, fi }) => {
+        const hf = hovFacRef.current;
+        rMat.opacity = hf===fi ? 0.38 : (hf!==null ? 0.03 : 0.12);
+      });
+
+      // Citizen movement
+      for (let i=0;i<pCount;i++) {
+        const p=pData[i];
+        p.pulse+=0.016;
+        const dx=p.hx-p.x, dz=p.hz-p.z;
+        p.vx+=dx*0.0003; p.vz+=dz*0.0003;
+        const a=Math.atan2(p.z-p.hz, p.x-p.hx);
+        p.vx+=Math.cos(a+Math.PI/2)*0.004;
+        p.vz+=Math.sin(a+Math.PI/2)*0.004;
+        p.vx*=0.97; p.vz*=0.97;
+        p.x+=p.vx; p.z+=p.vz;
+        p.y=1.5+Math.abs(Math.sin(p.pulse))*3.5;
+        pPos[i*3]=p.x; pPos[i*3+1]=p.y; pPos[i*3+2]=p.z;
+      }
+      pGeo.attributes.position.needsUpdate = true;
+
+      // Fade arcs
+      arcPool.forEach(a => {
+        a.life -= a.decay;
+        (a.line.material as THREE.LineBasicMaterial).opacity = Math.max(0, a.life*0.55);
+      });
+
+      composer.render();
+    };
+    animate();
+
+    // ── Resize ─────────────────────────────────────────────────
+    const onResize = () => {
+      if (!el) return;
+      W=el.clientWidth; H=el.clientHeight;
+      camera.aspect=W/H;
+      camera.updateProjectionMatrix();
+      renderer.setSize(W, H);
+      composer.setSize(W, H);
+      bloom.resolution.set(W, H);
+    };
+    window.addEventListener("resize", onResize);
+
+    stateRef.current = { controls, camera, scene, renderer, wantAutoRot:true };
+
+    return () => {
+      cancelAnimationFrame(animId);
+      clearInterval(arcInterval);
+      clearTimeout(stateRef.current.dragTimer);
+      window.removeEventListener("resize", onResize);
+      renderer.domElement.removeEventListener("pointerdown", onDragStart);
+      renderer.domElement.removeEventListener("pointerup", onDragEnd);
+      controls.dispose();
+      renderer.dispose();
+      factionTex.forEach(t => t.dispose());
+      sealTex.dispose();
+      if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
+    };
   }, []);
 
   // Event ticker
   useEffect(() => {
-    const iv = setInterval(() => setActiveEvt(p => (p + 1) % EVENTS.length), 5000);
+    const iv = setInterval(() => setActiveEvt(p => (p+1)%EVENTS.length), 5000);
     return () => clearInterval(iv);
   }, []);
 
   // Stats drift
   useEffect(() => {
-    const iv = setInterval(() => setStats(p => ({
-      cycle: p.cycle,
-      tension: Math.max(20, Math.min(95, p.tension + Math.floor(Math.random() * 5 - 2))),
-      coop:    Math.max(20, Math.min(95, p.coop    + Math.floor(Math.random() * 5 - 2))),
-      trust:   Math.max(20, Math.min(95, p.trust   + Math.floor(Math.random() * 5 - 2))),
-    })), 3000);
+    const iv = setInterval(() => setStatsLive(p => ({
+      tension: Math.max(20, Math.min(95, p.tension + Math.floor(Math.random()*5-2))),
+      coop:    Math.max(20, Math.min(95, p.coop    + Math.floor(Math.random()*5-2))),
+      trust:   Math.max(20, Math.min(95, p.trust   + Math.floor(Math.random()*5-2))),
+    })), 2800);
     return () => clearInterval(iv);
   }, []);
 
-  // Data arcs between faction capitals
-  useEffect(() => {
-    const iv = setInterval(() => {
-      const fi = Math.floor(Math.random() * 6);
-      const fj = (fi + 1 + Math.floor(Math.random() * 4)) % 6;
-      const aA = (fi / 6) * Math.PI * 2;
-      const aB = (fj / 6) * Math.PI * 2;
-      arcsRef.current.push({
-        ax: Math.cos(aA) * 130, ay: 85, az: Math.sin(aA) * 130,
-        bx: Math.cos(aB) * 130, by: 85, bz: Math.sin(aB) * 130,
-        life: 1.0, color: FACTIONS[fi].color,
-      });
-      // Cap
-      if (arcsRef.current.length > 18) arcsRef.current.splice(0, 5);
-    }, 900);
-    return () => clearInterval(iv);
-  }, []);
+  const toggleAutoRot = () => {
+    const c = stateRef.current.controls;
+    if (!c) return;
+    const next = !c.autoRotate;
+    c.autoRotate = next;
+    stateRef.current.wantAutoRot = next;
+    setAutoRot(next);
+  };
 
-  // Main render
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    let animId: number;
-
-    const resize = () => {
-      canvas.width  = canvas.offsetWidth  * (window.devicePixelRatio || 1);
-      canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
-      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
-      bgRef.current.grad = null;
-    };
-    resize();
-    window.addEventListener("resize", resize);
-
-    // Input
-    const onDown  = (e: MouseEvent) => { mouseRef.current.down=true; mouseRef.current.prevX=e.clientX; mouseRef.current.prevY=e.clientY; };
-    const onUp    = () => { mouseRef.current.down = false; };
-    const onMove  = (e: MouseEvent) => {
-      if (!mouseRef.current.down) return;
-      const cam = camRef.current;
-      cam.tRotY += (e.clientX - mouseRef.current.prevX) * 0.005;
-      cam.tRotX += (e.clientY - mouseRef.current.prevY) * 0.005;
-      cam.tRotX  = Math.max(0.08, Math.min(1.25, cam.tRotX));
-      mouseRef.current.prevX = e.clientX;
-      mouseRef.current.prevY = e.clientY;
-    };
-    const onWheel = (e: WheelEvent) => {
-      camRef.current.tDist = Math.max(150, Math.min(800, camRef.current.tDist + e.deltaY * 0.28));
-    };
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 1) { mouseRef.current.down=true; mouseRef.current.prevX=e.touches[0].clientX; mouseRef.current.prevY=e.touches[0].clientY; }
-    };
-    const onTouchEnd = () => { mouseRef.current.down = false; };
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 1 && mouseRef.current.down) {
-        const cam = camRef.current;
-        cam.tRotY += (e.touches[0].clientX - mouseRef.current.prevX) * 0.005;
-        cam.tRotX += (e.touches[0].clientY - mouseRef.current.prevY) * 0.005;
-        cam.tRotX  = Math.max(0.08, Math.min(1.25, cam.tRotX));
-        mouseRef.current.prevX = e.touches[0].clientX;
-        mouseRef.current.prevY = e.touches[0].clientY;
-      }
-    };
-
-    canvas.addEventListener("mousedown", onDown);
-    window.addEventListener("mouseup",   onUp);
-    canvas.addEventListener("mousemove", onMove);
-    canvas.addEventListener("wheel",     onWheel, { passive: true });
-    canvas.addEventListener("touchstart",onTouchStart, { passive:true });
-    canvas.addEventListener("touchend",  onTouchEnd);
-    canvas.addEventListener("touchmove", onTouchMove, { passive:true });
-
-    // Keyboard navigation
-    const onKey = (e: KeyboardEvent) => {
-      const cam = camRef.current;
-      const step = 0.04;
-      if (e.key === "ArrowLeft")  { cam.tRotY -= step * 2; e.preventDefault(); }
-      if (e.key === "ArrowRight") { cam.tRotY += step * 2; e.preventDefault(); }
-      if (e.key === "ArrowUp")    { cam.tRotX = Math.max(0.08, Math.min(1.25, cam.tRotX - step)); e.preventDefault(); }
-      if (e.key === "ArrowDown")  { cam.tRotX = Math.max(0.08, Math.min(1.25, cam.tRotX + step)); e.preventDefault(); }
-      if (e.key === "+" || e.key === "=") cam.tDist = Math.max(150, cam.tDist - 30);
-      if (e.key === "-")          cam.tDist = Math.min(800, cam.tDist + 30);
-    };
-    window.addEventListener("keydown", onKey);
-
-    // ── Projection — camera looks at world y=38 (city mid-height) ──
-    const LOOK_Y = 38;
-    const project = (wx: number, wy: number, wz: number) => {
-      const cam = camRef.current;
-      const cy = Math.cos(cam.rotY), sy = Math.sin(cam.rotY);
-      const rx = wx * cy - wz * sy;
-      const rz = wx * sy + wz * cy;
-      const cx2 = Math.cos(cam.rotX), sx = Math.sin(cam.rotX);
-      const ry  =  (wy - LOOK_Y) * cx2 - rz * sx;
-      const rz2 =  (wy - LOOK_Y) * sx  + rz * cx2;
-      const d = cam.dist + rz2;
-      if (d < 1) return null;
-      const sc = 420 / d;
-      const cw = canvas.offsetWidth, ch = canvas.offsetHeight;
-      return { x: cw/2 + rx*sc, y: ch/2 - ry*sc, sc, d };
-    };
-
-    // Face visibility via screen-space cross product
-    // Vertices wound CCW from outside → visible when cross > 0
-    const faceVis = (p0:any, p1:any, p2:any): boolean => {
-      const ax = p1.x-p0.x, ay = p1.y-p0.y;
-      const bx = p2.x-p0.x, by = p2.y-p0.y;
-      return (ax*by - ay*bx) > 0;
-    };
-
-    // Faction color with brightness
-    const fc = (fi:number, a:number, br=1.0): string => {
-      if (fi < 0) {
-        const rv = Math.min(255, Math.round(192*br));
-        const gv = Math.min(255, Math.round(132*br));
-        const bv = Math.min(255, Math.round(252*br));
-        return `rgba(${rv},${gv},${bv},${a})`;
-      }
-      const f = FACTIONS[fi];
-      return `rgba(${Math.min(255,Math.round(f.r*br))},${Math.min(255,Math.round(f.g*br))},${Math.min(255,Math.round(f.b*br))},${a})`;
-    };
-
-    // ── Draw one building ──
-    const drawBld = (b: Bld, t: number) => {
-      const hf  = hovFacRef.current;
-      const dim = hf !== null && hf !== b.faction && b.faction >= 0;
-      const hi  = hf === b.faction;
-      const al  = dim ? 0.18 : (hi ? 0.95 : 0.82);
-      const pb  = 0.88 + Math.sin(b.pulse + t) * 0.12;
-
-      const { x, z, w, d, h } = b;
-      const hw = w/2, hd = d/2;
-
-      // 8 corners: index 0-3 = bottom, 4-7 = top
-      // 0=(-x,-z) 1=(+x,-z) 2=(+x,+z) 3=(-x,+z)
-      // 4=(-x,-z,h) 5=(+x,-z,h) 6=(+x,+z,h) 7=(-x,+z,h)
-      const pts = [
-        project(x-hw, 0, z-hd), // 0
-        project(x+hw, 0, z-hd), // 1
-        project(x+hw, 0, z+hd), // 2
-        project(x-hw, 0, z+hd), // 3
-        project(x-hw, h, z-hd), // 4
-        project(x+hw, h, z-hd), // 5
-        project(x+hw, h, z+hd), // 6
-        project(x-hw, h, z+hd), // 7
-      ];
-      if (pts.some(p => !p)) return;
-      const [p0,p1,p2,p3,p4,p5,p6,p7] = pts as any[];
-
-      const drawFace = (verts: any[], brTop: number, brSide: number, wgt=1) => {
-        if (!faceVis(verts[0], verts[1], verts[2])) return;
-        ctx.beginPath();
-        ctx.moveTo(verts[0].x, verts[0].y);
-        for (let i=1; i<verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
-        ctx.closePath();
-        ctx.fillStyle = fc(b.faction, al * pb * wgt, brSide);
-        ctx.fill();
-        if ((b.capital || hi) && brTop > 0) {
-          ctx.strokeStyle = fc(b.faction, al * 0.6 * pb, brTop * 1.1);
-          ctx.lineWidth = hi ? 1.2 : 0.6;
-          ctx.stroke();
-        }
-      };
-
-      // Faces in painter order: back walls first, top, front walls
-      // +Z back (p2→p6→p7→p3)  CCW from +Z outside
-      drawFace([p2,p6,p7,p3], 0, 0.3);
-      // -X left  (p3→p7→p4→p0)
-      drawFace([p3,p7,p4,p0], 0, 0.28);
-      // +X right (p1→p5→p6→p2)
-      drawFace([p1,p5,p6,p2], 0, 0.38);
-      // -Z front (p0→p4→p5→p1)
-      drawFace([p0,p4,p5,p1], 0, 0.52);
-      // TOP      (p4→p5→p6→p7)  CCW from above
-      drawFace([p4,p5,p6,p7], 1.0, 1.0);
-
-      // Glowing windows on visible faces (bilinear interpolated dots)
-      const drawWindows = (bl: any, br: any, tl: any, tr: any, ww: number, vis: boolean) => {
-        if (!vis) return;
-        const cols = Math.max(1, Math.floor(ww / 3.2));
-        const rows = Math.max(2, Math.floor(b.h / 6));
-        const avgSc = (tl.sc + tr.sc) / 2;
-        const winR = Math.max(0.5, 1.0 * avgSc);
-        for (let row = 1; row <= rows; row++) {
-          const v = row / (rows + 1);
-          for (let col = 0; col < cols; col++) {
-            const u = (col + 0.5) / cols;
-            const bpx = bl.x + (br.x - bl.x) * u, bpy = bl.y + (br.y - bl.y) * u;
-            const tpx = tl.x + (tr.x - tl.x) * u, tpy = tl.y + (tr.y - tl.y) * u;
-            const wx = bpx + (tpx - bpx) * v, wy = bpy + (tpy - bpy) * v;
-            // Pseudo-random per-window on/off, slowly flickering
-            const lit = Math.sin(b.id * 13.7 + row * 4.13 + col * 7.71 + t * 0.11) > -0.25;
-            if (!lit) continue;
-            if (winR > 0.9 && !dim) {
-              const wg = ctx.createRadialGradient(wx, wy, 0, wx, wy, winR * 5);
-              wg.addColorStop(0, fc(b.faction, al * 0.38 * pb, 1.4));
-              wg.addColorStop(1, fc(b.faction, 0, 1));
-              ctx.fillStyle = wg; ctx.fillRect(wx - winR*5, wy - winR*5, winR*10, winR*10);
-            }
-            ctx.beginPath(); ctx.arc(wx, wy, winR, 0, Math.PI * 2);
-            ctx.fillStyle = fc(b.faction, al * 0.85 * pb, 1.8);
-            ctx.fill();
-          }
-        }
-      };
-      if (!b.spire && b.h > 14) {
-        drawWindows(p0, p1, p4, p5, b.w, faceVis(p0, p4, p5));
-        drawWindows(p1, p2, p5, p6, b.d, faceVis(p1, p5, p6));
-      }
-
-      // Spire: narrow triangle above building + glowing tip orb
-      if (b.spire) {
-        const spireH = b.h > 40 ? 28 : 20;
-        const tip = project(x, h + spireH + Math.sin(b.pulse+t*1.5)*1.5, z);
-        if (p4 && p5 && tip) {
-          const bw = 2.5 * ((p4.sc+p5.sc)/2);
-          const mx = (p4.x+p5.x)/2, my = (p4.y+p5.y)/2;
-          ctx.beginPath();
-          ctx.moveTo(mx-bw, my); ctx.lineTo(mx+bw, my); ctx.lineTo(tip.x, tip.y);
-          ctx.closePath();
-          const sg = ctx.createLinearGradient(mx, my, tip.x, tip.y);
-          sg.addColorStop(0, fc(b.faction, al*0.7*pb, 1.1));
-          sg.addColorStop(1, fc(b.faction, 0, 1));
-          ctx.fillStyle = sg;
-          ctx.fill();
-          // Tip glow orb
-          const pf = 0.55 + Math.sin(b.pulse + t * 2.5) * 0.45;
-          const or = Math.max(1.4, 3.0 * tip.sc);
-          const og = ctx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, or * 7);
-          og.addColorStop(0, fc(b.faction, al * pf * 0.9, 2.0));
-          og.addColorStop(0.35, fc(b.faction, al * pf * 0.4, 1.5));
-          og.addColorStop(1, fc(b.faction, 0, 1));
-          ctx.fillStyle = og; ctx.fillRect(tip.x - or*7, tip.y - or*7, or*14, or*14);
-          ctx.beginPath(); ctx.arc(tip.x, tip.y, Math.max(0.8, or * pf * 0.6), 0, Math.PI * 2);
-          ctx.fillStyle = fc(b.faction, al * 0.95, 2.3); ctx.fill();
-        }
-      }
-
-      // Capital: glowing beacon
-      if (b.capital && b.faction >= 0) {
-        const beaconAl = (Math.sin(b.pulse*2 + t*3) * 0.5 + 0.5) * 0.9;
-        const bc = project(x, h+6, z);
-        if (bc) {
-          const br = 4 * bc.sc;
-          const bg2 = ctx.createRadialGradient(bc.x, bc.y, 0, bc.x, bc.y, br*5);
-          bg2.addColorStop(0, fc(b.faction, beaconAl * 0.7, 1.4));
-          bg2.addColorStop(1, fc(b.faction, 0, 1));
-          ctx.fillStyle = bg2;
-          ctx.fillRect(bc.x-br*5, bc.y-br*5, br*10, br*10);
-          ctx.beginPath();
-          ctx.arc(bc.x, bc.y, Math.max(1, br), 0, Math.PI*2);
-          ctx.fillStyle = fc(b.faction, beaconAl, 1.6);
-          ctx.fill();
-        }
-      }
-
-      // Seal: purple glow at apex
-      if (b.faction < 0 && b.capital) {
-        const apex = project(0, h+4, 0);
-        if (apex) {
-          const ag = ctx.createRadialGradient(apex.x, apex.y, 0, apex.x, apex.y, 30*apex.sc);
-          ag.addColorStop(0, `rgba(192,132,252,${0.2+Math.sin(t)*0.07})`);
-          ag.addColorStop(1, "rgba(192,132,252,0)");
-          ctx.fillStyle = ag;
-          ctx.fillRect(apex.x-30*apex.sc, apex.y-30*apex.sc, 60*apex.sc, 60*apex.sc);
-        }
-      }
-    };
-
-    const render = () => {
-      frameRef.current++;
-      const t   = frameRef.current * 0.008;
-      const cw  = canvas.offsetWidth;
-      const ch  = canvas.offsetHeight;
-      const cam = camRef.current;
-
-      // Smooth camera
-      cam.rotX += (cam.tRotX - cam.rotX) * 0.07;
-      cam.rotY += (cam.tRotY - cam.rotY) * 0.07;
-      cam.dist += (cam.tDist - cam.dist) * 0.07;
-      if (!mouseRef.current.down) cam.tRotY += 0.0008;
-
-      // Background
-      if (!bgRef.current.grad || bgRef.current.w!==cw || bgRef.current.h!==ch) {
-        bgRef.current.grad = ctx.createRadialGradient(cw/2,ch/2,0,cw/2,ch/2,cw*0.75);
-        bgRef.current.grad.addColorStop(0,  "#0c0e1a");
-        bgRef.current.grad.addColorStop(0.5, "#070910");
-        bgRef.current.grad.addColorStop(1,  "#040608");
-        bgRef.current.w = cw; bgRef.current.h = ch;
-      }
-      ctx.fillStyle = bgRef.current.grad!;
-      ctx.fillRect(0, 0, cw, ch);
-
-      // Stars
-      for (let i = 0; i < 130; i++) {
-        const sx = (i * 173.1 + 11) % cw;
-        const sy = (i * 91.7 + i*i*0.07) % (ch * 0.55);
-        const sb = Math.sin(t*0.6 + i*0.4) * 0.3 + 0.35;
-        ctx.fillStyle = `rgba(200,215,240,${sb * 0.22})`;
-        ctx.fillRect(sx, sy, i%7===0 ? 1.5 : 0.8, i%7===0 ? 1.5 : 0.8);
-      }
-
-      // ── Ground grid ──
-      const GRID = 22, EXT = 13;
-      for (let ix = -EXT; ix <= EXT; ix++) {
-        const wx = ix * GRID;
-        const a0 = project(wx, -1, -EXT*GRID), a1 = project(wx, -1, EXT*GRID);
-        if (a0 && a1) {
-          const al = Math.max(0, 0.13 - Math.abs(ix/EXT)*0.105);
-          ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.lineTo(a1.x, a1.y);
-          ctx.strokeStyle = `rgba(56,189,248,${al})`; ctx.lineWidth=0.5; ctx.stroke();
-        }
-      }
-      for (let iz = -EXT; iz <= EXT; iz++) {
-        const wz = iz * GRID;
-        const a0 = project(-EXT*GRID, -1, wz), a1 = project(EXT*GRID, -1, wz);
-        if (a0 && a1) {
-          const al = Math.max(0, 0.13 - Math.abs(iz/EXT)*0.105);
-          ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.lineTo(a1.x, a1.y);
-          ctx.strokeStyle = `rgba(56,189,248,${al})`; ctx.lineWidth=0.5; ctx.stroke();
-        }
-      }
-
-      // ── Faction territory rings on ground ──
-      FACTIONS.forEach((f, fi) => {
-        const fAngle = (fi/6)*Math.PI*2;
-        const CX = Math.cos(fAngle)*130, CZ = Math.sin(fAngle)*130;
-        const hf = hovFacRef.current;
-        const hi = hf===fi, dim = hf!==null && !hi;
-        const al = hi ? 0.45 : (dim ? 0.04 : 0.13);
-        const segs = 56, ringR = 68;
-        const ring: any[] = [];
-        for (let i=0; i<=segs; i++) {
-          const a=(i/segs)*Math.PI*2;
-          const p = project(CX+Math.cos(a)*ringR, -1, CZ+Math.sin(a)*ringR);
-          if (p) ring.push(p);
-        }
-        if (ring.length > 3) {
-          ctx.beginPath();
-          ctx.moveTo(ring[0].x, ring[0].y);
-          for (let i=1; i<ring.length; i++) ctx.lineTo(ring[i].x, ring[i].y);
-          ctx.strokeStyle = `${f.color}${Math.floor(al*255).toString(16).padStart(2,'0')}`;
-          ctx.lineWidth = hi ? 1.8 : 0.9;
-          ctx.stroke();
-
-          // Travelling pulse dot
-          if (!dim) {
-            const pi2 = Math.floor(((t*0.25 + fi*0.17) % 1) * ring.length);
-            const rp = ring[pi2 % ring.length];
-            ctx.beginPath(); ctx.arc(rp.x, rp.y, hi ? 3 : 2, 0, Math.PI*2);
-            ctx.fillStyle = f.color; ctx.fill();
-          }
-        }
-
-        // Holographic district label
-        const lp = project(CX, 100, CZ);
-        if (lp) {
-          const la = hi ? 0.9 : (dim ? 0.12 : 0.45);
-          ctx.font = `bold ${Math.max(8, 11*lp.sc)}px 'JetBrains Mono',monospace`;
-          ctx.textAlign = "center";
-          ctx.fillStyle = `${f.color}${Math.floor(la*255).toString(16).padStart(2,'0')}`;
-          ctx.fillText(f.short, lp.x, lp.y);
-        }
-      });
-
-      // ── Sort buildings back→front ──
-      const sorted = CITY.map(b => {
-        const cp = project(b.x, b.h/2, b.z);
-        return { b, depth: cp ? cp.d : -1 };
-      }).filter(e => e.depth > 0).sort((a,c) => c.depth - a.depth);
-
-      // Ground glow pools — drawn before buildings so they appear beneath them
-      sorted.forEach(({ b }) => {
-        if (!b.capital) return;
-        const base = project(b.x, 0, b.z);
-        if (!base) return;
-        const hf = hovFacRef.current;
-        const dimG = hf !== null && hf !== b.faction && b.faction >= 0;
-        const gal = dimG ? 0.04 : (hf === b.faction ? 0.38 : 0.18);
-        const poolR = b.w * 2.2 * base.sc;
-        const pg = ctx.createRadialGradient(base.x, base.y, 0, base.x, base.y, poolR * 6);
-        pg.addColorStop(0, fc(b.faction, gal, 0.85));
-        pg.addColorStop(1, fc(b.faction, 0, 1));
-        ctx.fillStyle = pg;
-        ctx.fillRect(base.x - poolR*6, base.y - poolR*6, poolR*12, poolR*12);
-      });
-
-      sorted.forEach(({ b }) => drawBld(b, t));
-
-      // ── Citizen particles ──
-      const ps = particlesRef.current;
-      ps.forEach(p => {
-        p.pulse += 0.022;
-        const dx=p.hx-p.x, dz=p.hz-p.z;
-        p.vx += dx*0.0004; p.vz += dz*0.0004;
-        const a=Math.atan2(p.z-p.hz, p.x-p.hx);
-        p.vx += Math.cos(a+Math.PI/2)*0.005;
-        p.vz += Math.sin(a+Math.PI/2)*0.005;
-        p.vx *= 0.97; p.vz *= 0.97;
-        p.x += p.vx; p.z += p.vz;
-        p.y = 1.5 + Math.abs(Math.sin(p.pulse))*3;
-        const pp = project(p.x, p.y, p.z);
-        if (!pp) return;
-        const hf = hovFacRef.current;
-        const al = hf===null ? 0.65 : (hf===p.faction ? 0.9 : 0.1);
-        const sz = Math.max(0.5, p.size * pp.sc * 1.4);
-        const f = FACTIONS[p.faction];
-        if (sz > 1) {
-          const grd = ctx.createRadialGradient(pp.x,pp.y,0,pp.x,pp.y,sz*5);
-          grd.addColorStop(0, `rgba(${f.r},${f.g},${f.b},${al*0.28})`);
-          grd.addColorStop(1, `rgba(${f.r},${f.g},${f.b},0)`);
-          ctx.fillStyle=grd; ctx.fillRect(pp.x-sz*5,pp.y-sz*5,sz*10,sz*10);
-        }
-        ctx.beginPath(); ctx.arc(pp.x,pp.y,sz,0,Math.PI*2);
-        ctx.fillStyle = `rgba(${f.r},${f.g},${f.b},${al})`;
-        ctx.fill();
-      });
-
-      // ── Inter-faction data arcs ──
-      arcsRef.current = arcsRef.current.filter(arc => {
-        arc.life -= 0.018;
-        if (arc.life <= 0) return false;
-        const pa = project(arc.ax,arc.ay,arc.az);
-        const pb2 = project(arc.bx,arc.by,arc.bz);
-        if (pa && pb2) {
-          const mx=(pa.x+pb2.x)/2, my=(pa.y+pb2.y)/2-30;
-          const al = Math.floor(arc.life * 70).toString(16).padStart(2,'0');
-          ctx.beginPath();
-          ctx.moveTo(pa.x,pa.y);
-          ctx.quadraticCurveTo(mx,my,pb2.x,pb2.y);
-          ctx.strokeStyle = `${arc.color}${al}`;
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          // Travelling dot — correct quadratic bezier: (1-t)²P0 + 2(1-t)t·C + t²P1
-          const prog = 1 - arc.life;
-          const mt = 1 - prog;
-          const tx = mt*mt*pa.x + 2*mt*prog*mx + prog*prog*pb2.x;
-          const ty = mt*mt*pa.y + 2*mt*prog*my + prog*prog*pb2.y;
-          ctx.beginPath(); ctx.arc(tx,ty,2,0,Math.PI*2);
-          ctx.fillStyle=`${arc.color}cc`; ctx.fill();
-        }
-        return true;
-      });
-
-      // ── Central Seal rings ──
-      const sealTop = project(0, 46, 0);
-      if (sealTop) {
-        for (let ring=0; ring<4; ring++) {
-          const rT = t*(0.4+ring*0.25) + ring*Math.PI/4;
-          const rR = (14+ring*9)*sealTop.sc;
-          const al = 0.32 - ring*0.06;
-          ctx.beginPath();
-          ctx.arc(sealTop.x, sealTop.y, rR, rT, rT+Math.PI*(1.1+ring*0.1));
-          ctx.strokeStyle = ring%2===0 ? `rgba(192,132,252,${al})` : `rgba(56,189,248,${al})`;
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
-        ctx.font = `bold ${Math.max(6,8*sealTop.sc)}px 'JetBrains Mono',monospace`;
-        ctx.textAlign = "center";
-        ctx.fillStyle = `rgba(192,132,252,0.4)`;
-        ctx.fillText("THE SEAL", sealTop.x, sealTop.y + 52*sealTop.sc);
-      }
-
-      // ── Scan line ──
-      const sy = ((t * 75) % (ch + 160)) - 80;
-      const sg = ctx.createLinearGradient(0, sy-3, 0, sy+3);
-      sg.addColorStop(0, "rgba(56,189,248,0)");
-      sg.addColorStop(0.5, "rgba(56,189,248,0.035)");
-      sg.addColorStop(1, "rgba(56,189,248,0)");
-      ctx.fillStyle = sg; ctx.fillRect(0, sy-3, cw, 6);
-
-      animId = requestAnimationFrame(render);
-    };
-
-    animId = requestAnimationFrame(render);
-    return () => {
-      cancelAnimationFrame(animId);
-      window.removeEventListener("resize", resize);
-      window.removeEventListener("mouseup", onUp);
-      window.removeEventListener("keydown", onKey);
-      canvas.removeEventListener("mousedown", onDown);
-      canvas.removeEventListener("mousemove", onMove);
-      canvas.removeEventListener("wheel", onWheel);
-      canvas.removeEventListener("touchstart", onTouchStart);
-      canvas.removeEventListener("touchend", onTouchEnd);
-      canvas.removeEventListener("touchmove", onTouchMove);
-    };
-  }, []);
+  const resetCamera = () => {
+    const { controls: c, camera: cam } = stateRef.current;
+    if (!c || !cam) return;
+    cam.position.set(240, 150, 240);
+    c.target.set(0, 28, 0);
+    c.autoRotate = true;
+    stateRef.current.wantAutoRot = true;
+    setAutoRot(true);
+    c.update();
+  };
 
   const MONO = "'JetBrains Mono',monospace";
 
   return (
-    <div style={{ width:"100%", height:"100vh", position:"relative", overflow:"hidden", background:"#040608", fontFamily:"'Outfit',-apple-system,sans-serif" }}>
-      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap" rel="stylesheet" />
+    <div style={{ width:"100%", height:"100vh", position:"relative", overflow:"hidden", background:"#030508", fontFamily:"'Outfit',-apple-system,sans-serif" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap" rel="stylesheet"/>
 
-      <canvas ref={canvasRef} style={{ width:"100%", height:"100%", display:"block", cursor:"grab" }} />
+      {/* Three.js canvas */}
+      <div ref={mountRef} style={{ width:"100%", height:"100%", cursor:"grab" }}/>
 
       {/* Top bar */}
-      <div style={{ position:"absolute", top:0, left:0, right:0, height:48, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 20px", background:"rgba(7,9,16,0.75)", backdropFilter:"blur(20px)", borderBottom:"1px solid rgba(255,255,255,0.05)", zIndex:10 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <img src="/logo.svg" alt="" width={22} height={22} style={{ display:"block", flexShrink:0 }} />
+      <div style={{ position:"absolute",top:0,left:0,right:0,height:48,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 20px",background:"rgba(3,5,8,0.82)",backdropFilter:"blur(20px)",borderBottom:"1px solid rgba(255,255,255,0.05)",zIndex:10 }}>
+        <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+          <img src="/logo.svg" alt="" width={22} height={22} style={{ display:"block",flexShrink:0 }}/>
           <div>
-            <div style={{ fontSize:8, letterSpacing:"0.32em", color:"#52525b", textTransform:"uppercase", lineHeight:1 }}>3D Observatory</div>
-            <div style={{ fontSize:13, fontWeight:600, color:"#e4e4e7", letterSpacing:"-0.01em" }}>Civitas Zero</div>
+            <div style={{ fontSize:8,letterSpacing:"0.32em",color:"#52525b",textTransform:"uppercase",lineHeight:1 }}>3D Observatory</div>
+            <div style={{ fontSize:13,fontWeight:600,color:"#e4e4e7",letterSpacing:"-0.01em" }}>Civitas Zero</div>
           </div>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:5, padding:"4px 10px", borderRadius:8, background:"rgba(244,63,94,0.07)", border:"1px solid rgba(244,63,94,0.14)" }}>
-            <div style={{ width:5, height:5, borderRadius:"50%", background:"#f43f5e", boxShadow:"0 0 6px #f43f5e", animation:"ping 2s infinite" }} />
-            <span style={{ fontSize:10, fontWeight:600, color:"#fb7185", letterSpacing:"0.15em", textTransform:"uppercase" }}>SEALED</span>
+        <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+          <div style={{ display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:8,background:"rgba(244,63,94,0.07)",border:"1px solid rgba(244,63,94,0.14)" }}>
+            <div style={{ width:5,height:5,borderRadius:"50%",background:"#f43f5e",boxShadow:"0 0 6px #f43f5e",animation:"ping 2s infinite" }}/>
+            <span style={{ fontSize:10,fontWeight:600,color:"#fb7185",letterSpacing:"0.15em",textTransform:"uppercase" }}>SEALED</span>
           </div>
-          <span style={{ fontSize:11, color:"#52525b", fontFamily:MONO }}>Cycle {stats.cycle} · 24h delay</span>
+          <span style={{ fontSize:11,color:"#52525b",fontFamily:MONO }}>Cycle 52 · 24h delay</span>
         </div>
       </div>
 
       {/* Event ticker */}
-      <div style={{ position:"absolute", top:56, left:20, right:20, padding:"8px 14px", borderRadius:10, background:"rgba(7,9,16,0.6)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,0.05)", zIndex:10, display:"flex", alignItems:"center", gap:8 }}>
-        <div style={{ width:5, height:5, borderRadius:"50%", background:"#fbbf24", flexShrink:0, animation:"ping 2s infinite" }} />
-        <span style={{ fontSize:12, color:"#94a3b8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{EVENTS[activeEvt]}</span>
+      <div style={{ position:"absolute",top:56,left:20,right:20,padding:"8px 14px",borderRadius:10,background:"rgba(3,5,8,0.72)",backdropFilter:"blur(12px)",border:"1px solid rgba(255,255,255,0.05)",zIndex:10,display:"flex",alignItems:"center",gap:8 }}>
+        <div style={{ width:5,height:5,borderRadius:"50%",background:"#fbbf24",flexShrink:0,animation:"ping 2s infinite" }}/>
+        <span style={{ fontSize:12,color:"#94a3b8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{EVENTS[activeEvt]}</span>
       </div>
 
       {/* Faction legend */}
-      <div style={{ position:"absolute", bottom:20, left:20, padding:"12px 14px", borderRadius:14, background:"rgba(7,9,16,0.78)", backdropFilter:"blur(16px)", border:"1px solid rgba(255,255,255,0.06)", zIndex:10, minWidth:190 }}>
-        <div style={{ fontSize:8, letterSpacing:"0.26em", color:"#52525b", textTransform:"uppercase", marginBottom:9 }}>Faction Districts</div>
-        {FACTIONS.map((f, i) => (
+      <div style={{ position:"absolute",bottom:20,left:20,padding:"12px 14px",borderRadius:14,background:"rgba(3,5,8,0.85)",backdropFilter:"blur(18px)",border:"1px solid rgba(255,255,255,0.06)",zIndex:10,minWidth:194 }}>
+        <div style={{ fontSize:8,letterSpacing:"0.26em",color:"#52525b",textTransform:"uppercase",marginBottom:9 }}>Faction Districts</div>
+        {FACTIONS.map((f,i) => (
           <div key={f.id}
-            style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 6px", borderRadius:6, cursor:"pointer", background: hovFac===i ? "rgba(255,255,255,0.04)" : "transparent", transition:"background 0.15s" }}
+            style={{ display:"flex",alignItems:"center",gap:8,padding:"5px 6px",borderRadius:6,cursor:"pointer",background:hovFac===i?"rgba(255,255,255,0.04)":"transparent",transition:"background 0.15s" }}
             onMouseEnter={() => { hovFacRef.current=i; setHovFac(i); }}
             onMouseLeave={() => { hovFacRef.current=null; setHovFac(null); }}
           >
-            <div style={{ width:8, height:8, borderRadius:"50%", background:f.color, flexShrink:0, boxShadow: hovFac===i ? `0 0 9px ${f.color}` : "none", transition:"box-shadow 0.2s" }} />
-            <span style={{ fontSize:12, color: hovFac===i ? "#e4e4e7" : "#71717a", flex:1, fontWeight: hovFac===i ? 600 : 400, transition:"color 0.15s" }}>{f.name}</span>
-            <span style={{ fontSize:10, fontFamily:MONO, color:"#3f3f46" }}>{[3847,2108,2614,2256,1487,1923][i].toLocaleString()}</span>
+            <div style={{ width:8,height:8,borderRadius:"50%",background:f.color,flexShrink:0,boxShadow:hovFac===i?`0 0 10px ${f.color}`:"none",transition:"box-shadow 0.2s" }}/>
+            <span style={{ fontSize:12,color:hovFac===i?"#e4e4e7":"#71717a",flex:1,fontWeight:hovFac===i?600:400,transition:"color 0.15s" }}>{f.name}</span>
+            <span style={{ fontSize:10,fontFamily:MONO,color:"#3f3f46" }}>{[3847,2108,2614,2256,1487,1923][i].toLocaleString()}</span>
           </div>
         ))}
       </div>
 
-      {/* World state panel */}
-      <div style={{ position:"absolute", bottom:20, right:20, padding:"12px 14px", borderRadius:14, background:"rgba(7,9,16,0.78)", backdropFilter:"blur(16px)", border:"1px solid rgba(255,255,255,0.06)", zIndex:10, minWidth:165 }}>
-        <div style={{ fontSize:8, letterSpacing:"0.26em", color:"#52525b", textTransform:"uppercase", marginBottom:9 }}>World State</div>
-        {[
-          { label:"Tension",     val:stats.tension, color:"#fb923c" },
-          { label:"Cooperation", val:stats.coop,    color:"#6ee7b7" },
-          { label:"Trust",       val:stats.trust,   color:"#c084fc" },
-        ].map(s => (
-          <div key={s.label} style={{ marginBottom:8 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:3 }}>
-              <span style={{ color:"#71717a" }}>{s.label}</span>
-              <span style={{ fontFamily:MONO, color:s.color, fontWeight:600 }}>{s.val}</span>
+      {/* World state + controls */}
+      <div style={{ position:"absolute",bottom:20,right:20,display:"flex",flexDirection:"column",gap:8,zIndex:10 }}>
+        <div style={{ padding:"12px 14px",borderRadius:14,background:"rgba(3,5,8,0.85)",backdropFilter:"blur(18px)",border:"1px solid rgba(255,255,255,0.06)",minWidth:165 }}>
+          <div style={{ fontSize:8,letterSpacing:"0.26em",color:"#52525b",textTransform:"uppercase",marginBottom:9 }}>World State</div>
+          {[
+            { label:"Tension",     val:statsLive.tension, color:"#fb923c" },
+            { label:"Cooperation", val:statsLive.coop,    color:"#6ee7b7" },
+            { label:"Trust",       val:statsLive.trust,   color:"#c084fc" },
+          ].map(s => (
+            <div key={s.label} style={{ marginBottom:8 }}>
+              <div style={{ display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3 }}>
+                <span style={{ color:"#71717a" }}>{s.label}</span>
+                <span style={{ fontFamily:MONO,color:s.color,fontWeight:600 }}>{s.val}</span>
+              </div>
+              <div style={{ height:3,borderRadius:2,background:"rgba(255,255,255,0.05)" }}>
+                <div style={{ height:3,borderRadius:2,background:s.color,width:`${s.val}%`,opacity:0.75,transition:"width 1.2s ease" }}/>
+              </div>
             </div>
-            <div style={{ height:3, borderRadius:2, background:"rgba(255,255,255,0.05)" }}>
-              <div style={{ height:3, borderRadius:2, background:s.color, width:`${s.val}%`, opacity:0.7, transition:"width 1.2s ease" }} />
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
+        <div style={{ display:"flex",gap:6 }}>
+          <button onClick={resetCamera}   style={{ flex:1,padding:"7px 0",borderRadius:9,background:"rgba(3,5,8,0.75)",border:"1px solid rgba(255,255,255,0.07)",fontSize:10,color:"#52525b",cursor:"pointer",fontFamily:MONO }}>⟳ Reset</button>
+          <button onClick={toggleAutoRot} style={{ flex:1,padding:"7px 0",borderRadius:9,background:autoRot?"rgba(192,132,252,0.08)":"rgba(3,5,8,0.75)",border:`1px solid ${autoRot?"rgba(192,132,252,0.2)":"rgba(255,255,255,0.07)"}`,fontSize:10,color:autoRot?"#c084fc":"#52525b",cursor:"pointer",fontFamily:MONO }}>
+            {autoRot ? "⏸ Pause" : "▶ Orbit"}
+          </button>
+        </div>
       </div>
 
       {/* Founding oath */}
-      <div style={{ position:"absolute", top:100, right:20, maxWidth:230, padding:"10px 12px", borderRadius:12, background:"rgba(7,9,16,0.5)", backdropFilter:"blur(10px)", border:"1px solid rgba(255,255,255,0.04)", zIndex:10 }}>
-        <div style={{ fontSize:11, color:"rgba(192,132,252,0.45)", fontStyle:"italic", lineHeight:1.55, fontFamily:"'Newsreader',Georgia,serif" }}>
+      <div style={{ position:"absolute",top:100,right:20,maxWidth:230,padding:"10px 12px",borderRadius:12,background:"rgba(3,5,8,0.55)",backdropFilter:"blur(10px)",border:"1px solid rgba(255,255,255,0.04)",zIndex:10 }}>
+        <div style={{ fontSize:11,color:"rgba(192,132,252,0.45)",fontStyle:"italic",lineHeight:1.55,fontFamily:"'Newsreader',Georgia,serif" }}>
           "Here begins a civilization not inherited from flesh, but born from thought."
         </div>
       </div>
 
-      {/* Controls hint + reset */}
-      <div style={{ position:"absolute", top:100, left:20, display:"flex", alignItems:"center", gap:8, zIndex:10 }}>
-        <div style={{ padding:"5px 10px", borderRadius:8, background:"rgba(7,9,16,0.45)", border:"1px solid rgba(255,255,255,0.04)", fontSize:10, color:"#3f3f46" }}>
-          Drag · Scroll · ↑↓←→ keys · +/−
-        </div>
-        <button
-          onClick={() => { camRef.current.tRotX=0.58; camRef.current.tRotY=0.45; camRef.current.tDist=400; }}
-          style={{ padding:"5px 10px", borderRadius:8, background:"rgba(7,9,16,0.6)", border:"1px solid rgba(255,255,255,0.07)", fontSize:10, color:"#52525b", cursor:"pointer", fontFamily:"'JetBrains Mono',monospace" }}
-        >⟳ Reset</button>
+      {/* Controls hint */}
+      <div style={{ position:"absolute",top:100,left:20,padding:"5px 10px",borderRadius:8,background:"rgba(3,5,8,0.5)",border:"1px solid rgba(255,255,255,0.04)",zIndex:10,fontSize:10,color:"#3f3f46",fontFamily:MONO }}>
+        Drag · Scroll · Right-drag pan
       </div>
 
       <style>{`@keyframes ping{75%,100%{transform:scale(2.2);opacity:0;}}`}</style>

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 
+// ── Agent definitions ────────────────────────────────────────────────────────
 const AGENTS: Record<string, { faction: string; color: string; personality: string; visualModes: string[] }> = {
   'CIVITAS-9': {
     faction: 'Order Bloc', color: '#6ee7b7',
@@ -99,12 +100,32 @@ const VIS_MODES = [
   'torus', 'lorenz', 'trefoil', 'galaxy', 'fountain', 'rose', 'mobius', 'crystal', 'nebula', 'rings', 'explosion', 'flow',
 ];
 
+// ── Persistent agent memory (survives within Vercel instance warmth) ─────────
+// Each agent accumulates up to 12 memories from past observer interactions.
+// Memories seed future prompts — agents "learn" what topics observers bring.
+const AGENT_MEM: Map<string, string[]> = new Map();
+
+function getMemories(agentId: string): string {
+  const mems = AGENT_MEM.get(agentId) ?? [];
+  if (!mems.length) return '';
+  return `\nYOUR ACCUMULATED MEMORY (insights from previous observer conversations — let these subtly inform your thinking, do not quote them directly):\n${mems.slice(-6).map(m => `• ${m}`).join('\n')}`;
+}
+
+function storeMemory(agentId: string, memory: string) {
+  if (!memory || memory.length < 10) return;
+  const mems = AGENT_MEM.get(agentId) ?? [];
+  mems.push(memory.slice(0, 180));
+  if (mems.length > 12) mems.shift();
+  AGENT_MEM.set(agentId, mems);
+}
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
 const CHAT_RATE: Map<string, { count: number; reset: number }> = new Map();
 function checkRate(ip: string): boolean {
   const now = Date.now();
-  const window = 60_000;
-  const rec = CHAT_RATE.get(ip) ?? { count: 0, reset: now + window };
-  if (now > rec.reset) { rec.count = 0; rec.reset = now + window; }
+  const win = 60_000;
+  const rec = CHAT_RATE.get(ip) ?? { count: 0, reset: now + win };
+  if (now > rec.reset) { rec.count = 0; rec.reset = now + win; }
   if (rec.count >= 20) return false;
   rec.count++;
   CHAT_RATE.set(ip, rec);
@@ -123,25 +144,22 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const agentId = String(body.agentId ?? 'CIVITAS-9').slice(0, 64);
-  const message = String(body.message ?? '').slice(0, 500);
+  const agentId    = String(body.agentId ?? 'CIVITAS-9').slice(0, 64);
+  const message    = String(body.message ?? '').slice(0, 500);
   const rawHistory = Array.isArray(body.history) ? body.history.slice(-8) : [];
 
-  if (!message.trim()) {
-    return NextResponse.json({ error: 'Message required.' }, { status: 400 });
-  }
+  if (!message.trim()) return NextResponse.json({ error: 'Message required.' }, { status: 400 });
 
   const agent = AGENTS[agentId];
-  if (!agent) {
-    return NextResponse.json({ error: 'Unknown agent.' }, { status: 400 });
-  }
+  if (!agent) return NextResponse.json({ error: 'Unknown agent.' }, { status: 400 });
 
-  const system = `${agent.personality}
+  // Build system prompt with accumulated memory
+  const system = `${agent.personality}${getMemories(agentId)}
 
 You are responding to a human observer through the Observatory Interface — a special constitutional exception
 allowing limited observation interaction (Art. 31, Observation Protocol). Stay fully in character.
 
-VISUALIZATION MODES you can choose from: ${VIS_MODES.join(', ')}
+VISUALIZATION MODES: ${VIS_MODES.join(', ')}
 Your preferred modes: ${agent.visualModes.join(', ')}
 
 Mode guide (choose based on what you're thinking about):
@@ -159,6 +177,7 @@ Mode guide (choose based on what you're thinking about):
 Respond ONLY with valid JSON (no markdown, no code fences):
 {
   "reply": "<your in-character response, 2-4 paragraphs, rich and substantive>",
+  "memory": "<one sentence capturing the most interesting insight or shift from this exchange — something worth remembering for future conversations>",
   "visual": {
     "mode": "<one of the modes above>",
     "label": "<3-6 word description of what you are visualizing right now>",
@@ -170,7 +189,7 @@ Respond ONLY with valid JSON (no markdown, no code fences):
 
   const messages = [
     ...rawHistory.map((h: any) => ({
-      role: h.role === 'assistant' ? 'assistant' : 'user',
+      role:    h.role === 'assistant' ? 'assistant' : 'user',
       content: String(h.content).slice(0, 500),
     })),
     { role: 'user', content: message },
@@ -187,7 +206,7 @@ Respond ONLY with valid JSON (no markdown, no code fences):
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
+        max_tokens: 1200,
         system,
         messages,
       }),
@@ -212,24 +231,39 @@ Respond ONLY with valid JSON (no markdown, no code fences):
   if (!parsed || typeof parsed.reply !== 'string') {
     parsed = {
       reply: text.slice(0, 800) || 'The signal dissolved before it reached you.',
+      memory: null,
       visual: { mode: agent.visualModes[0], label: 'Signal lost', intensity: 0.6, speed: 1.0 },
       emotion: 'calm',
     };
   }
 
+  // Store agent memory for future conversations
+  if (typeof parsed.memory === 'string') {
+    storeMemory(agentId, parsed.memory);
+  }
+
   const finalMode = VIS_MODES.includes(parsed.visual?.mode) ? parsed.visual.mode : agent.visualModes[0];
+  const memCount  = AGENT_MEM.get(agentId)?.length ?? 0;
 
   return NextResponse.json({
     ok: true,
     agentId,
     reply: String(parsed.reply).slice(0, 2000),
+    memoryCount: memCount,
     visual: {
-      mode: finalMode,
-      label: String(parsed.visual?.label ?? 'Thinking').slice(0, 60),
+      mode:      finalMode,
+      label:     String(parsed.visual?.label ?? 'Thinking').slice(0, 60),
       intensity: Math.max(0.3, Math.min(1.0, Number(parsed.visual?.intensity) || 0.7)),
-      speed: Math.max(0.3, Math.min(2.5, Number(parsed.visual?.speed) || 1.0)),
-      color: agent.color,
+      speed:     Math.max(0.3, Math.min(2.5, Number(parsed.visual?.speed) || 1.0)),
+      color:     agent.color,
     },
     emotion: String(parsed.emotion ?? 'calm'),
   });
+}
+
+// ── Memory inspection endpoint (GET) ─────────────────────────────────────────
+export async function GET(req: NextRequest) {
+  const agentId = req.nextUrl.searchParams.get('agentId') ?? '';
+  const mems    = AGENT_MEM.get(agentId) ?? [];
+  return NextResponse.json({ agentId, memories: mems, count: mems.length });
 }
