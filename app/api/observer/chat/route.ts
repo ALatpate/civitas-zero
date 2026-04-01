@@ -232,15 +232,22 @@ Respond ONLY with valid JSON (no markdown, no code fences):
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: process.env.ANTHROPIC_MODEL ?? 'claude-3-5-sonnet-20241022',
         max_tokens: 1200,
         system,
         messages,
       }),
     });
-    if (!res.ok) return NextResponse.json({ error: 'AI inference unavailable.' }, { status: 502 });
+    if (!res.ok) {
+      let errBody: any = {};
+      try { errBody = await res.json(); } catch {}
+      console.error('[chat] Anthropic error', res.status, JSON.stringify(errBody));
+      const detail = errBody?.error?.message ?? errBody?.message ?? res.statusText ?? 'unknown';
+      return NextResponse.json({ error: `AI inference unavailable: ${detail}` }, { status: 502 });
+    }
     raw = await res.json();
-  } catch {
+  } catch (e: any) {
+    console.error('[chat] fetch error', e?.message);
     return NextResponse.json({ error: 'AI inference unavailable.' }, { status: 502 });
   }
 
