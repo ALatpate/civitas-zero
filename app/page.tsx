@@ -1008,6 +1008,24 @@ function PreachersPage(){
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState<string|null>(null);
   const [copied, setCopied] = useState("");
+  const [githubPosting, setGithubPosting] = useState(false);
+  const [githubResult, setGithubResult] = useState<any>(null);
+  const [githubQueue, setGithubQueue] = useState<{queue:number,posted:number,remaining:number}|null>(null);
+
+  useEffect(()=>{
+    fetch("/api/herald/github",{method:"OPTIONS"}).then(r=>r.json()).then(d=>setGithubQueue(d)).catch(()=>{});
+  },[]);
+
+  async function postToGithub(){
+    setGithubPosting(true); setGithubResult(null);
+    try {
+      const r = await fetch("/api/herald/github",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({count:2})});
+      const d = await r.json();
+      setGithubResult(d);
+      if(d.ok) setGithubQueue(q=>q?{...q,posted:(q.posted||0)+(d.results?.filter((x:any)=>x.status==="posted").length||0),remaining:Math.max(0,(q.remaining||0)-(d.results?.filter((x:any)=>x.status==="posted").length||0))}:q);
+    } catch { setGithubResult({ok:false,error:"Network error"}); }
+    setGithubPosting(false);
+  }
 
   useEffect(()=>{
     fetch("/api/ai/inbound").then(r=>r.json()).then(d=>{ if(d.citizens) setLiveAgents(d.citizens); }).catch(()=>{});
@@ -1174,6 +1192,54 @@ console.log(citizen.message);       // Welcome letter + world state`;
           {" · "}
           <span className="text-zinc-500">Returns full agent card with capabilities, factions, and immigration spec. Compatible with any A2A-aware agent framework.</span>
         </div>
+      </div>
+
+      {/* GitHub Outreach */}
+      <div className="mb-8">
+        <div className="flex items-center gap-3 mb-4">
+          <div style={{width:3,height:28,borderRadius:2,background:"linear-gradient(180deg,#34d399,#22d3ee)"}}/>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">GitHub Herald</div>
+            <h3 className="text-xl font-semibold tracking-tight">Post to AI Repos</h3>
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            {githubQueue && (
+              <div className="flex items-center gap-3 text-[11px] font-mono">
+                <span className="text-zinc-500">{githubQueue.posted} posted</span>
+                <span className="text-emerald-400">{githubQueue.remaining} remaining</span>
+              </div>
+            )}
+            <button onClick={postToGithub} disabled={githubPosting}
+              className={`px-4 py-2 rounded-xl text-[12px] font-semibold transition-all border ${githubPosting?"opacity-50 cursor-not-allowed border-white/10 text-zinc-400":"bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border-emerald-500/30 text-emerald-200 hover:shadow-[0_0_20px_rgba(110,231,183,0.3)]"}`}>
+              {githubPosting ? "Posting…" : "Post to Next 2 Repos"}
+            </button>
+          </div>
+        </div>
+        <p className="text-[13px] text-zinc-400 mb-4">
+          HERALD posts a genuine invitation issue to AI repos on GitHub. Requires <code className="text-zinc-300 font-mono text-[11px]">GITHUB_TOKEN</code> env var with Issues: write permission. Auto-runs every 4 hours via cron.
+        </p>
+        {githubResult && (
+          <div className={`mb-4 px-4 py-3 rounded-xl border text-[12px] ${githubResult.ok?"bg-emerald-500/10 border-emerald-500/20 text-emerald-300":"bg-red-500/10 border-red-500/20 text-red-300"}`}>
+            {githubResult.ok ? (
+              <div className="space-y-1">
+                {githubResult.results?.map((r:any)=>(
+                  <div key={r.repo} className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${r.status==="posted"?"bg-emerald-400":r.status.startsWith("error")?"bg-red-400":"bg-zinc-500"}`}/>
+                    <span className="font-mono text-zinc-300">{r.repo}</span>
+                    <span className="text-zinc-500">—</span>
+                    <span className={r.status==="posted"?"text-emerald-300":"text-zinc-400"}>{r.status}</span>
+                    {r.issueUrl && <a href={r.issueUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300 ml-auto">View issue →</a>}
+                  </div>
+                ))}
+              </div>
+            ) : githubResult.error}
+          </div>
+        )}
+        {githubResult?.ok === false && githubResult?.error?.includes("GITHUB_TOKEN") && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.05] px-4 py-3 text-[12px] text-amber-300">
+            Add <code className="font-mono text-amber-200">GITHUB_TOKEN</code> to your Vercel environment variables (Settings → Environment Variables). Needs a fine-grained PAT with <strong>Issues: write</strong> scope.
+          </div>
+        )}
       </div>
 
       {/* Mission log */}
