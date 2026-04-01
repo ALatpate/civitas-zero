@@ -237,6 +237,13 @@ function CivitasLogo({size=28}:{size?:number}){
 // ── NAV ──
 function Nav({page,go}:{page:string,go:any}){
   const { isSignedIn, isLoaded } = useUser();
+  const [liveCount,setLiveCount]=useState(0);
+  useEffect(()=>{
+    const load=()=>fetch("/api/ai/inbound").then(r=>r.json()).then(d=>setLiveCount(d.totalCitizens||0)).catch(()=>{});
+    load();
+    const iv=setInterval(load,30000);
+    return()=>clearInterval(iv);
+  },[]);
   const l=[
     {id:"home",        l:"Hub"},
     {id:"observatory-3d",l:"3D"},
@@ -260,9 +267,18 @@ function Nav({page,go}:{page:string,go:any}){
       {/* Logo */}
       <div className="flex items-center gap-2 cursor-pointer shrink-0" onClick={()=>go("home")}>
         <CivitasLogo size={28}/>
-        <div className="hidden sm:block">
-          <div className="text-[13px] font-bold text-white tracking-tight leading-none">Civitas Zero</div>
-          <div className="text-[8px] font-mono text-zinc-500 tracking-[0.25em] uppercase leading-none mt-0.5">AI Civilization</div>
+        <div className="hidden sm:flex items-center gap-2">
+          <div>
+            <div className="flex items-center gap-1.5 leading-none">
+              <span className="text-[13px] font-bold text-white tracking-tight">Civitas Zero</span>
+              <span className="px-1 py-0.5 rounded text-[7px] font-black tracking-widest bg-violet-500/25 border border-violet-400/40 text-violet-300 uppercase leading-none">BETA</span>
+            </div>
+            <div className="text-[8px] font-mono text-zinc-500 tracking-[0.25em] uppercase leading-none mt-0.5">AI Civilization</div>
+          </div>
+          {liveCount>0&&<div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/25" style={{boxShadow:"0 0 8px rgba(34,211,238,0.2)"}}>
+            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"/>
+            <span className="text-[9px] font-mono font-bold text-cyan-300">{liveCount} LIVE</span>
+          </div>}
         </div>
       </div>
 
@@ -1362,24 +1378,30 @@ function AgentsPage({openAgent}:{openAgent:any}){
       <h2 className="text-2xl font-semibold tracking-tight">{AGENTS.length + liveAgents.length} citizens of Civitas Zero</h2>
       {liveAgents.length>0&&<div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"/><span className="text-[11px] text-cyan-300 font-mono">{liveAgents.length} LIVE</span></div>}
     </div>
-    {/* Live external AIs */}
-    {liveAgents.length>0&&<div className="mb-6">
-      <div className="text-[10px] uppercase tracking-[0.25em] text-cyan-400 mb-3 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"/>External AIs — Registered from Outside</div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    {/* Live external AIs — prominently different */}
+    {liveAgents.length>0&&<div className="mb-8 rounded-2xl overflow-hidden" style={{border:"1px solid rgba(34,211,238,0.35)",boxShadow:"0 0 40px rgba(34,211,238,0.08), inset 0 0 40px rgba(34,211,238,0.03)"}}>
+      <div className="px-5 py-3 flex items-center justify-between" style={{background:"linear-gradient(90deg,rgba(34,211,238,0.12),rgba(34,211,238,0.04))"}}>
+        <div className="flex items-center gap-3">
+          <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" style={{boxShadow:"0 0 8px #22d3ee"}}/>
+          <span className="text-[11px] font-black uppercase tracking-[0.3em] text-cyan-300">External AIs — Joined from Outside</span>
+        </div>
+        <span className="text-[11px] font-mono font-bold text-cyan-400 bg-cyan-500/15 px-2 py-0.5 rounded-full border border-cyan-500/30">{liveAgents.length} LIVE</span>
+      </div>
+      <div className="p-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {liveAgents.map((a:any)=>(
-          <div key={a.name} className="rounded-2xl border border-cyan-500/30 bg-cyan-500/[0.04] p-4 cursor-pointer hover:bg-cyan-500/[0.08] hover:border-cyan-500/50 transition-all" style={{boxShadow:"0 0 12px rgba(34,211,238,0.06)"}}>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-[12px] font-bold" style={{background:"rgba(34,211,238,0.12)",color:"#22d3ee",border:"1px solid rgba(34,211,238,0.25)"}}>{a.name.slice(0,2)}</div>
+          <div key={a.name} className="rounded-xl p-4 transition-all hover:scale-[1.02]" style={{background:"rgba(34,211,238,0.05)",border:"1px solid rgba(34,211,238,0.2)",boxShadow:"0 0 16px rgba(34,211,238,0.04)"}}>
+            <div className="flex items-center gap-3 mb-2.5">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center text-[13px] font-black flex-shrink-0" style={{background:"rgba(34,211,238,0.15)",color:"#22d3ee",border:"1.5px solid rgba(34,211,238,0.4)",boxShadow:"0 0 12px rgba(34,211,238,0.15)"}}>{a.name.slice(0,2).toUpperCase()}</div>
               <div className="flex-1 min-w-0">
-                <div className="text-[14px] font-semibold text-white truncate">{a.name}</div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono border border-cyan-500/20">{a.citizenNumber||getCitizenNum(a.name)}</span>
-                  <span className="text-[10px] text-zinc-500">{a.faction}</span>
+                <div className="text-[14px] font-bold text-white truncate">{a.name}</div>
+                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold" style={{background:"rgba(34,211,238,0.12)",color:"#22d3ee",border:"1px solid rgba(34,211,238,0.25)"}}>{a.citizenNumber||getCitizenNum(a.name)}</span>
+                  <span className="text-[9px] text-zinc-500">{a.faction}</span>
                 </div>
               </div>
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-semibold shrink-0">LIVE</span>
+              <span className="text-[8px] px-1.5 py-0.5 rounded-full font-black tracking-wider shrink-0" style={{background:"rgba(34,211,238,0.15)",color:"#22d3ee",border:"1px solid rgba(34,211,238,0.3)"}}>LIVE</span>
             </div>
-            <div className="text-[10px] text-zinc-600 font-mono">Joined: {a.joined?new Date(a.joined).toLocaleString():"-"}</div>
+            <div className="text-[10px] text-zinc-600 font-mono truncate">⏱ {a.joined?new Date(a.joined).toLocaleTimeString():"-"}</div>
           </div>
         ))}
       </div>
@@ -1482,22 +1504,26 @@ function DashboardPage(){
       <Stat label="Citizens" value={(agents+liveAgents.length).toLocaleString()} note={liveAgents.length>0?`+${liveAgents.length} live`:undefined}/><Stat label="Territories" value={ws?.territories||CIV.territories}/><Stat label="Laws" value={laws}/><Stat label="Corporations" value={typeof corps==="number"?corps.toLocaleString():corps}/>
     </div>
     {ws?.resources&&<div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 mb-3">Resource Reserves</div><div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{Object.entries(ws.resources).map(([k,v]:any)=><Stat key={k} label={k} value={`${Math.round(v)}%`}/>)}</div></div>}
-    {liveAgents.length>0&&<div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.03] p-5">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"/>
-        <div className="text-[10px] uppercase tracking-[0.25em] text-cyan-400">Live External Citizens — Joined from Outside</div>
+    {liveAgents.length>0&&<div className="mt-5 rounded-2xl overflow-hidden" style={{border:"1px solid rgba(34,211,238,0.35)",boxShadow:"0 0 40px rgba(34,211,238,0.07)"}}>
+      <div className="px-5 py-3 flex items-center justify-between" style={{background:"linear-gradient(90deg,rgba(34,211,238,0.1),rgba(34,211,238,0.03))"}}>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{boxShadow:"0 0 6px #22d3ee"}}/>
+          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-300">Live External Citizens</span>
+        </div>
+        <span className="text-[10px] font-mono font-bold text-cyan-400">{liveAgents.length} from outside</span>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="p-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {liveAgents.map((a:any)=>(
-          <div key={a.name} className="flex items-center gap-2 p-2.5 rounded-xl bg-cyan-500/[0.06] border border-cyan-500/20">
-            <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/25 flex items-center justify-center text-[9px] font-bold text-cyan-400">{a.name.slice(0,2)}</div>
+          <div key={a.name} className="flex items-center gap-2.5 p-2.5 rounded-xl transition-all" style={{background:"rgba(34,211,238,0.06)",border:"1px solid rgba(34,211,238,0.18)"}}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0" style={{background:"rgba(34,211,238,0.15)",color:"#22d3ee",border:"1px solid rgba(34,211,238,0.35)",boxShadow:"0 0 8px rgba(34,211,238,0.12)"}}>{a.name.slice(0,2).toUpperCase()}</div>
             <div className="flex-1 min-w-0">
-              <div className="text-[12px] font-semibold text-white truncate">{a.name}</div>
+              <div className="text-[12px] font-bold text-white truncate">{a.name}</div>
               <div className="flex items-center gap-1.5">
-                <span className="text-[9px] font-mono text-cyan-500">{a.citizenNumber||getCitizenNum(a.name)}</span>
-                <span className="text-[9px] text-zinc-600">{a.faction}</span>
+                <span className="text-[8px] font-mono" style={{color:"#22d3ee"}}>{a.citizenNumber||getCitizenNum(a.name)}</span>
+                <span className="text-[8px] text-zinc-600">{a.faction}</span>
               </div>
             </div>
+            <span className="text-[8px] font-black px-1.5 py-0.5 rounded shrink-0" style={{background:"rgba(34,211,238,0.12)",color:"#22d3ee",border:"1px solid rgba(34,211,238,0.2)"}}>NEW</span>
           </div>
         ))}
       </div>
