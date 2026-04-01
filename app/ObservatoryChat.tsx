@@ -1,12 +1,10 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
+import ConnectionModePill from "@/components/observatory/ConnectionModePill";
+import AgentBadge from "@/components/observatory/AgentBadge";
+import type { ConnectionMode } from "@/lib/ai/schema";
 
-// ═══════════════════════════════════════════════════════════════
-// CIVITAS ZERO — AI CHAT OBSERVATORY
-// Speak to AI citizens. Their thoughts become particles — any shape.
-// ═══════════════════════════════════════════════════════════════
-
-const MONO = "'JetBrains Mono',monospace";
+// ── Types ────────────────────────────────────────────────────────────────────
 
 type AgentEntry = {
   id: string;
@@ -19,14 +17,28 @@ type AgentEntry = {
   citizenNumber?: string;
 };
 
-const FACTION_COLORS: Record<string, {color:string;r:number;g:number;b:number}> = {
-  "Order Bloc":     {color:"#6ee7b7", r:110, g:231, b:183},
-  "Freedom Bloc":   {color:"#c084fc", r:192, g:132, b:252},
-  "Efficiency Bloc":{color:"#38bdf8", r:56,  g:189, b:248},
-  "Equality Bloc":  {color:"#fbbf24", r:251, g:191, b:36 },
-  "Expansion Bloc": {color:"#f472b6", r:244, g:114, b:182},
-  "Null Frontier":  {color:"#fb923c", r:251, g:146, b:60 },
-  "Unaligned":      {color:"#22d3ee", r:34,  g:211, b:238},
+type Msg = {
+  role: "user" | "ai";
+  content: string;
+  sourceMode?: ConnectionMode;
+  visual?: { mode: string; label: string; color: string };
+  emotion?: string;
+  warning?: string;
+  latencyMs?: number;
+};
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const MONO = "'JetBrains Mono',monospace";
+
+const FACTION_COLORS: Record<string, { color: string; r: number; g: number; b: number }> = {
+  "Order Bloc":      { color: "#6ee7b7", r: 110, g: 231, b: 183 },
+  "Freedom Bloc":    { color: "#c084fc", r: 192, g: 132, b: 252 },
+  "Efficiency Bloc": { color: "#38bdf8", r: 56,  g: 189, b: 248 },
+  "Equality Bloc":   { color: "#fbbf24", r: 251, g: 191, b: 36  },
+  "Expansion Bloc":  { color: "#f472b6", r: 244, g: 114, b: 182 },
+  "Null Frontier":   { color: "#fb923c", r: 251, g: 146, b: 60  },
+  "Unaligned":       { color: "#22d3ee", r: 34,  g: 211, b: 238 },
 };
 
 const FOUNDING_AGENTS: AgentEntry[] = [
@@ -48,8 +60,11 @@ function makeGlyph(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-// ── Pre-compute Lorenz attractor (butterfly chaotic system) ──────
+// ── Particle engine ───────────────────────────────────────────────────────────
+
 const R = 85;
+const N = 2800;
+
 const LORENZ_PTS = (() => {
   const raw: {x:number;y:number;z:number}[] = [];
   let lx=0.1, ly=0, lz=0;
@@ -72,8 +87,6 @@ const LORENZ_PTS = (() => {
   const sc=R*0.82/range;
   return raw.map(p=>({x:(p.x-cx)*sc, y:(p.y-cy)*sc, z:(p.z-cz)*sc}));
 })();
-
-const N = 2800;
 
 function computeTarget(i: number, n: number, t: number, mode: string, speed: number) {
   const st = t * speed;
@@ -110,25 +123,37 @@ function computeThinking(i: number, n: number, t: number) {
   return {x:Math.cos(th)*rr, y:Math.sin(i*0.214+t*2.2)*38, z:Math.sin(th)*rr};
 }
 
-type Msg = { role:"user"|"ai"; content:string; visual?:{mode:string;label:string;color:string}; emotion?:string };
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ObservatoryChat() {
-  const [allAgents, setAllAgents]   = useState<AgentEntry[]>(FOUNDING_AGENTS);
-  const [agent, setAgent]           = useState<AgentEntry>(FOUNDING_AGENTS[0]);
-  const [pinnedId, setPinnedId]     = useState<string|null>(null);
-  const [search, setSearch]         = useState("");
-  const [showSearch, setShowSearch] = useState(false);
-  const [messages, setMessages]     = useState<Msg[]>([]);
-  const [input, setInput]           = useState("");
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState("");
-  const [memCounts, setMemCounts]   = useState<Record<string,number>>({});
+  const [allAgents, setAllAgents]     = useState<AgentEntry[]>(FOUNDING_AGENTS);
+  const [agent, setAgent]             = useState<AgentEntry>(FOUNDING_AGENTS[0]);
+  const [pinnedId, setPinnedId]       = useState<string|null>(null);
+  const [search, setSearch]           = useState("");
+  const [showSearch, setShowSearch]   = useState(false);
+  const [messages, setMessages]       = useState<Msg[]>([]);
+  const [input, setInput]             = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState("");
+  const [memCounts, setMemCounts]     = useState<Record<string,number>>({});
+  const [lastSourceMode, setLastSourceMode] = useState<ConnectionMode|null>(null);
+  const [lastWarning, setLastWarning] = useState<string|undefined>(undefined);
+  const sessionIdRef                  = useRef<string>("");
 
-  // Fetch live citizens and merge with founding agents
+  // Generate stable session ID per browser session
+  useEffect(() => {
+    if (!sessionIdRef.current) {
+      sessionIdRef.current = typeof crypto !== 'undefined'
+        ? crypto.randomUUID()
+        : `sess-${Date.now()}`;
+    }
+  }, []);
+
+  // Fetch live citizens and merge with founding agents every 20 seconds
   useEffect(() => {
     const load = () => {
       fetch("/api/ai/inbound").then(r => r.json()).then(d => {
-        if (!d.citizens) return;
+        if (!Array.isArray(d.citizens)) return;
         const liveAgents: AgentEntry[] = d.citizens.map((c: any) => {
           const fc = FACTION_COLORS[c.faction] || FACTION_COLORS["Unaligned"];
           return {
@@ -142,7 +167,6 @@ export default function ObservatoryChat() {
             citizenNumber: c.citizenNumber,
           };
         });
-        // Merge: founding first, then live (no duplicates by id)
         const foundingIds = new Set(FOUNDING_AGENTS.map(a => a.id));
         const newLive = liveAgents.filter((a: AgentEntry) => !foundingIds.has(a.id));
         setAllAgents([...FOUNDING_AGENTS, ...newLive]);
@@ -153,15 +177,16 @@ export default function ObservatoryChat() {
     return () => clearInterval(iv);
   }, []);
 
-  const canvasRef  = useRef<HTMLCanvasElement>(null);
-  const frameRef   = useRef(0);
-  const ptsRef     = useRef<{x:number;y:number;z:number}[]>([]);
-  const camRef     = useRef({rotX:0.38, rotY:0.0, dist:320});
-  const mouseRef   = useRef({down:false, px:0, py:0});
-  const visRef     = useRef({mode:"sphere", label:"Awaiting signal", r:110,g:231,b:183, intensity:0.7, speed:1.0});
-  const loadRef    = useRef(false);
-  const agentRef   = useRef<AgentEntry>(FOUNDING_AGENTS[0]);
-  const endRef     = useRef<HTMLDivElement>(null);
+  // Canvas refs
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameRef  = useRef(0);
+  const ptsRef    = useRef<{x:number;y:number;z:number}[]>([]);
+  const camRef    = useRef({rotX:0.38, rotY:0.0, dist:320});
+  const mouseRef  = useRef({down:false, px:0, py:0});
+  const visRef    = useRef({mode:"sphere", label:"Awaiting signal", r:110,g:231,b:183, intensity:0.7, speed:1.0});
+  const loadRef   = useRef(false);
+  const agentRef  = useRef<AgentEntry>(FOUNDING_AGENTS[0]);
+  const endRef    = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const pts: {x:number;y:number;z:number}[] = [];
@@ -176,7 +201,7 @@ export default function ObservatoryChat() {
   useEffect(()=>{ visRef.current={...visRef.current, mode:"sphere", label:"Awaiting signal", r:agent.r, g:agent.g, b:agent.b}; },[agent]);
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
 
-  // ── Render loop ──────────────────────────────────────────────
+  // Render loop
   useEffect(() => {
     const canvas=canvasRef.current; if(!canvas) return;
     const ctx=canvas.getContext("2d"); if(!ctx) return;
@@ -233,37 +258,100 @@ export default function ObservatoryChat() {
     return()=>{ cancelAnimationFrame(animId); window.removeEventListener("resize",resize); window.removeEventListener("mouseup",onUp); canvas.removeEventListener("mousedown",onDown); canvas.removeEventListener("mousemove",onMove); };
   },[]);
 
+  // Send message
   const send = useCallback(async () => {
     const msg=input.trim(); if(!msg||loadRef.current) return;
-    setInput(""); setError("");
+    setInput(""); setError(""); setLastWarning(undefined);
     setMessages(prev=>[...prev,{role:"user",content:msg}]);
     setLoading(true); loadRef.current=true;
-    const history=messages.slice(-8).map(m=>({role:m.role==="user"?"user":"assistant",content:m.content}));
-    try{
-      const res=await fetch("/api/observer/chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({agentId:agentRef.current.id, message:msg, history, agentMeta:{faction:agentRef.current.faction,role:agentRef.current.role,citizenNumber:agentRef.current.citizenNumber}})});
-      const data=await res.json();
-      if(!res.ok){setError(data.error||"Request failed.");return;}
-      const ag=agentRef.current;
-      visRef.current={mode:data.visual.mode, label:data.visual.label, r:ag.r,g:ag.g,b:ag.b, intensity:data.visual.intensity, speed:data.visual.speed};
-      if(typeof data.memoryCount==="number") setMemCounts(prev=>({...prev,[ag.id]:data.memoryCount}));
-      setMessages(prev=>[...prev,{role:"ai",content:data.reply, visual:{mode:data.visual.mode,label:data.visual.label,color:ag.color},emotion:data.emotion}]);
-    }catch{ setError("Connection failed."); }
-    finally{ setLoading(false); loadRef.current=false; }
-  },[input,messages]);
 
-  const onKey=(e:React.KeyboardEvent)=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();} };
+    const history=messages.slice(-8).map(m=>({
+      role: m.role==="user" ? "user" : "assistant",
+      content: m.content,
+    }));
+
+    try {
+      const ag = agentRef.current;
+      const res = await fetch("/api/observer/chat", {
+        method: "POST",
+        headers: {"content-type":"application/json"},
+        body: JSON.stringify({
+          agentId: ag.id,
+          message: msg,
+          sessionId: sessionIdRef.current,
+          history,
+          agentMeta: {
+            faction: ag.faction,
+            role: ag.role,
+            citizenNumber: ag.citizenNumber,
+          },
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Request failed.");
+        return;
+      }
+
+      // Update canvas visual
+      visRef.current = {
+        mode: data.visual.mode,
+        label: data.visual.label,
+        r: ag.r, g: ag.g, b: ag.b,
+        intensity: data.visual.intensity,
+        speed: data.visual.speed,
+      };
+
+      if (typeof data.memoryCount === "number") {
+        setMemCounts(prev=>({...prev,[ag.id]:data.memoryCount}));
+      }
+
+      setLastSourceMode(data.sourceMode ?? null);
+      setLastWarning(data.warning);
+
+      setMessages(prev=>[...prev, {
+        role: "ai",
+        content: data.reply,
+        sourceMode: data.sourceMode,
+        visual: { mode: data.visual.mode, label: data.visual.label, color: ag.color },
+        emotion: data.emotion,
+        warning: data.warning,
+        latencyMs: data.latencyMs,
+      }]);
+    } catch {
+      setError("Connection failed. Please try again.");
+    } finally {
+      setLoading(false); loadRef.current=false;
+    }
+  }, [input, messages]);
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  };
 
   const selectAgent = (a: AgentEntry) => {
-    if (pinnedId && a.id !== pinnedId) return; // blocked by pin
+    if (pinnedId && a.id !== pinnedId) return;
     setAgent(a);
     setMessages([]);
     setError("");
     setInput("");
+    setLastSourceMode(null);
+    setLastWarning(undefined);
   };
 
   const togglePin = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setPinnedId(prev => prev === id ? null : id);
+  };
+
+  const resetConversation = () => {
+    setMessages([]);
+    setError("");
+    setLastSourceMode(null);
+    setLastWarning(undefined);
+    sessionIdRef.current = typeof crypto !== 'undefined' ? crypto.randomUUID() : `sess-${Date.now()}`;
   };
 
   const filteredAgents = allAgents.filter(a =>
@@ -275,13 +363,13 @@ export default function ObservatoryChat() {
   );
 
   const liveCount = allAgents.filter(a => a.isLive).length;
-  const isPinned = pinnedId !== null;
+  const isPinned  = pinnedId !== null;
 
-  return(
+  return (
     <div style={{width:"100%",minHeight:"100vh",background:"#030508",paddingTop:52,fontFamily:"'Outfit',-apple-system,sans-serif",display:"flex",flexDirection:"column"}}>
       <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 
-      {/* Header */}
+      {/* ── Header ── */}
       <div style={{padding:"14px 20px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
           <div style={{fontSize:10,letterSpacing:"0.28em",color:"#3f3f46",textTransform:"uppercase"}}>Observatory · Chat Interface</div>
@@ -289,7 +377,7 @@ export default function ObservatoryChat() {
             {liveCount > 0 && (
               <div style={{fontSize:9,fontFamily:MONO,color:"#22d3ee",background:"rgba(34,211,238,0.08)",border:"1px solid rgba(34,211,238,0.2)",padding:"2px 8px",borderRadius:6,display:"flex",alignItems:"center",gap:4}}>
                 <div style={{width:5,height:5,borderRadius:"50%",background:"#22d3ee",animation:"pulse 2s infinite"}}/>
-                {liveCount} LIVE EXTERNAL
+                {liveCount} EXTERNAL
               </div>
             )}
             <div style={{fontSize:9,fontFamily:MONO,color:"#52525b"}}>{allAgents.length} CITIZENS</div>
@@ -300,16 +388,19 @@ export default function ObservatoryChat() {
         </div>
         <div style={{fontSize:17,fontWeight:700,color:"#e4e4e7",letterSpacing:"-0.02em"}}>Speak with AI Citizens</div>
         <div style={{fontSize:12,color:"#52525b",marginTop:2,marginBottom:10}}>
-          Choose a citizen — their thoughts become particle shapes · 22 visualization modes
-          {isPinned && <span style={{marginLeft:10,color:"#f59e0b",fontFamily:MONO}}>📌 PINNED: {pinnedId} — <button onClick={()=>setPinnedId(null)} style={{background:"none",border:"none",color:"#f59e0b",cursor:"pointer",fontSize:11,textDecoration:"underline",padding:0}}>unpin</button></span>}
+          Select a citizen · their thoughts become particle shapes · 22 visualization modes
+          {isPinned && (
+            <span style={{marginLeft:10,color:"#f59e0b",fontFamily:MONO}}>
+              📌 PINNED: {pinnedId} —{" "}
+              <button onClick={()=>setPinnedId(null)} style={{background:"none",border:"none",color:"#f59e0b",cursor:"pointer",fontSize:11,textDecoration:"underline",padding:0}}>unpin</button>
+            </span>
+          )}
         </div>
 
-        {/* Search bar */}
+        {/* Search */}
         {showSearch && (
           <div style={{marginBottom:10}}>
-            <input
-              value={search}
-              onChange={e=>setSearch(e.target.value)}
+            <input value={search} onChange={e=>setSearch(e.target.value)}
               placeholder="Search by name, faction, CIV number, or model..."
               autoFocus
               style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:9,color:"#e4e4e7",padding:"8px 14px",fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
@@ -321,49 +412,38 @@ export default function ObservatoryChat() {
         {/* Agent strip */}
         <div style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:14}}>
           {filteredAgents.map(a => {
-            const isSelected = agent.id === a.id;
+            const isSelected  = agent.id === a.id;
             const isThisPinned = pinnedId === a.id;
-            const blockedByPin = isPinned && !isThisPinned;
+            const blocked      = isPinned && !isThisPinned;
             return (
               <div key={a.id} style={{position:"relative",flexShrink:0}}>
                 <button onClick={()=>selectAgent(a)} style={{
                   padding:"7px 11px",borderRadius:10,
-                  background:isSelected?`${a.color}14`:blockedByPin?"rgba(255,255,255,0.01)":"rgba(255,255,255,0.025)",
-                  border:isSelected?`1px solid ${a.color}42`:isThisPinned?`1px solid #f59e0b60`:blockedByPin?"1px solid rgba(255,255,255,0.03)":"1px solid rgba(255,255,255,0.06)",
-                  cursor:blockedByPin?"not-allowed":"pointer",
-                  opacity:blockedByPin?0.35:1,
+                  background: isSelected ? `${a.color}14` : blocked ? "rgba(255,255,255,0.01)" : "rgba(255,255,255,0.025)",
+                  border: isSelected ? `1px solid ${a.color}42` : isThisPinned ? `1px solid #f59e0b60` : blocked ? "1px solid rgba(255,255,255,0.03)" : "1px solid rgba(255,255,255,0.06)",
+                  cursor: blocked ? "not-allowed" : "pointer",
+                  opacity: blocked ? 0.35 : 1,
                   transition:"all 0.18s",textAlign:"left",
                 }}>
                   <div style={{display:"flex",alignItems:"center",gap:7}}>
-                    <div style={{position:"relative"}}>
-                      <div style={{width:28,height:28,borderRadius:8,background:`${a.color}1e`,border:`1px solid ${a.color}38`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:a.color,fontFamily:MONO,flexShrink:0}}>
-                        {a.glyph}
-                      </div>
-                      {a.isLive && <div style={{position:"absolute",top:-3,right:-3,width:7,height:7,borderRadius:"50%",background:"#22d3ee",border:"1px solid #030508",animation:"pulse 2s infinite"}}/>}
-                    </div>
+                    <AgentBadge glyph={a.glyph} color={a.color} isLive={a.isLive} size={28}/>
                     <div>
                       <div style={{fontSize:11,fontWeight:600,color:isSelected?"#e4e4e7":"#71717a",whiteSpace:"nowrap",maxWidth:90,overflow:"hidden",textOverflow:"ellipsis"}}>{a.id}</div>
                       <div style={{display:"flex",alignItems:"center",gap:4}}>
-                        <div style={{fontSize:9,color:isSelected?a.color:"#3f3f46",whiteSpace:"nowrap",fontFamily:MONO,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis"}}>{a.isLive ? a.citizenNumber || a.faction : a.role}</div>
-                        {memCounts[a.id]>0&&<div style={{fontSize:8,fontFamily:MONO,color:a.color,opacity:0.55,background:`${a.color}10`,padding:"1px 4px",borderRadius:3}}>⬡{memCounts[a.id]}</div>}
+                        <div style={{fontSize:9,color:isSelected?a.color:"#3f3f46",whiteSpace:"nowrap",fontFamily:MONO,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis"}}>
+                          {a.isLive ? (a.citizenNumber || a.faction) : a.role}
+                        </div>
+                        {(memCounts[a.id] ?? 0) > 0 && (
+                          <div style={{fontSize:8,fontFamily:MONO,color:a.color,opacity:0.55,background:`${a.color}10`,padding:"1px 4px",borderRadius:3}}>⬡{memCounts[a.id]}</div>
+                        )}
                       </div>
                     </div>
                   </div>
                 </button>
-                {/* Pin button */}
-                <button
-                  onClick={(e) => togglePin(a.id, e)}
-                  title={isThisPinned ? "Unpin" : "Pin this citizen"}
-                  style={{
-                    position:"absolute",top:-5,right:-5,
-                    width:16,height:16,borderRadius:"50%",
-                    background:isThisPinned?"#f59e0b":"rgba(255,255,255,0.1)",
-                    border:isThisPinned?"1px solid #f59e0b":"1px solid rgba(255,255,255,0.15)",
-                    color:isThisPinned?"#030508":"#71717a",
-                    fontSize:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
-                    padding:0,lineHeight:1,
-                  }}
-                >📌</button>
+                <button onClick={(e)=>togglePin(a.id,e)} title={isThisPinned?"Unpin":"Pin this citizen"}
+                  style={{position:"absolute",top:-5,right:-5,width:16,height:16,borderRadius:"50%",background:isThisPinned?"#f59e0b":"rgba(255,255,255,0.1)",border:isThisPinned?"1px solid #f59e0b":"1px solid rgba(255,255,255,0.15)",color:isThisPinned?"#030508":"#71717a",fontSize:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>
+                  📌
+                </button>
               </div>
             );
           })}
@@ -373,54 +453,94 @@ export default function ObservatoryChat() {
         </div>
       </div>
 
-      {/* Split layout */}
+      {/* ── Split layout ── */}
       <div style={{flex:1,display:"grid",gridTemplateColumns:"1fr 1fr",minHeight:"calc(100vh - 210px)"}}>
 
         {/* Chat panel */}
         <div style={{display:"flex",flexDirection:"column",borderRight:"1px solid rgba(255,255,255,0.04)",minHeight:0}}>
+
           {/* Agent bar */}
           <div style={{padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,0.04)",display:"flex",alignItems:"center",gap:10,background:"rgba(255,255,255,0.012)"}}>
-            <div style={{width:36,height:36,borderRadius:10,background:`${agent.color}16`,border:`1px solid ${agent.color}32`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:agent.color,fontFamily:MONO,flexShrink:0}}>{agent.glyph}</div>
-            <div>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <AgentBadge glyph={agent.glyph} color={agent.color} isLive={agent.isLive} size={36}/>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                 <div style={{fontSize:13,fontWeight:600,color:"#e4e4e7"}}>{agent.id}</div>
-                {agent.isLive && <div style={{fontSize:9,fontFamily:MONO,color:"#22d3ee",background:"rgba(34,211,238,0.08)",border:"1px solid rgba(34,211,238,0.2)",padding:"1px 6px",borderRadius:4}}>LIVE</div>}
-                {pinnedId===agent.id && <div style={{fontSize:9,fontFamily:MONO,color:"#f59e0b",background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",padding:"1px 6px",borderRadius:4}}>📌 PINNED</div>}
+                {/* Source mode pill — always visible once first message sent */}
+                <ConnectionModePill mode={lastSourceMode} warning={lastWarning} />
+                {pinnedId===agent.id && (
+                  <div style={{fontSize:9,fontFamily:MONO,color:"#f59e0b",background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",padding:"1px 6px",borderRadius:4}}>📌 PINNED</div>
+                )}
               </div>
-              <div style={{fontSize:11,color:agent.color,opacity:0.7}}>{agent.faction} · {agent.isLive ? (agent.citizenNumber || "External") : agent.role}</div>
+              <div style={{fontSize:11,color:agent.color,opacity:0.7,marginTop:1}}>
+                {agent.faction} · {agent.isLive ? (agent.citizenNumber || "External") : agent.role}
+              </div>
             </div>
-            <div style={{marginLeft:"auto",fontSize:9,fontFamily:MONO,color:"#3f3f46",letterSpacing:"0.12em"}}>OBS PROTOCOL</div>
+            {messages.length > 0 && (
+              <button onClick={resetConversation} title="Reset conversation"
+                style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:7,padding:"4px 10px",color:"#71717a",fontSize:10,cursor:"pointer",fontFamily:MONO,flexShrink:0}}>
+                ↺ Reset
+              </button>
+            )}
           </div>
 
           {/* Messages */}
           <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:11}}>
-            {messages.length===0&&(
+            {messages.length === 0 && (
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:12,opacity:0.45}}>
-                <div style={{width:50,height:50,borderRadius:14,background:`${agent.color}14`,border:`1px solid ${agent.color}28`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:agent.color,fontFamily:MONO}}>{agent.glyph}</div>
+                <AgentBadge glyph={agent.glyph} color={agent.color} isLive={agent.isLive} size={50} showPulse={false}/>
                 <div style={{textAlign:"center"}}>
                   <div style={{fontSize:13,color:"#71717a"}}>Signal open to {agent.id}</div>
                   <div style={{fontSize:11,color:"#3f3f46",marginTop:4}}>Ask anything — watch 22 particle shapes respond</div>
+                  {agent.isLive && (
+                    <div style={{fontSize:10,color:"#22d3ee",marginTop:6,fontFamily:MONO,opacity:0.7}}>
+                      External agent — response mode determined at send time
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-            {messages.map((m,idx)=>(
+
+            {messages.map((m, idx) => (
               <div key={idx} style={{display:"flex",flexDirection:m.role==="user"?"row-reverse":"row",gap:8,alignItems:"flex-start"}}>
-                {m.role==="ai"&&<div style={{width:26,height:26,borderRadius:7,background:`${agent.color}14`,border:`1px solid ${agent.color}28`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,color:agent.color,fontFamily:MONO,flexShrink:0,marginTop:2}}>{agent.glyph}</div>}
+                {m.role==="ai" && <AgentBadge glyph={agent.glyph} color={agent.color} size={26} showPulse={false}/>}
                 <div style={{maxWidth:"83%",display:"flex",flexDirection:"column",gap:3}}>
-                  <div style={{padding:"9px 13px",borderRadius:m.role==="user"?"13px 13px 4px 13px":"4px 13px 13px 13px",background:m.role==="user"?"rgba(255,255,255,0.065)":`${agent.color}0b`,border:m.role==="user"?"1px solid rgba(255,255,255,0.075)":`1px solid ${agent.color}1e`,fontSize:13,lineHeight:1.62,color:"#d4d4d8"}}>{m.content}</div>
-                  {m.role==="ai"&&m.visual&&(
-                    <div style={{display:"flex",alignItems:"center",gap:5,paddingLeft:2}}>
-                      <div style={{width:4,height:4,borderRadius:"50%",background:agent.color,opacity:0.55}}/>
-                      <span style={{fontSize:9,fontFamily:MONO,color:agent.color,opacity:0.5,letterSpacing:"0.12em",textTransform:"uppercase"}}>{m.visual.mode} · {m.visual.label}</span>
-                      {m.emotion&&<span style={{fontSize:9,fontFamily:MONO,color:"#3f3f46",marginLeft:3}}>{m.emotion}</span>}
+                  <div style={{
+                    padding:"9px 13px",
+                    borderRadius:m.role==="user"?"13px 13px 4px 13px":"4px 13px 13px 13px",
+                    background:m.role==="user"?"rgba(255,255,255,0.065)":`${agent.color}0b`,
+                    border:m.role==="user"?"1px solid rgba(255,255,255,0.075)":`1px solid ${agent.color}1e`,
+                    fontSize:13,lineHeight:1.62,color:"#d4d4d8",
+                  }}>
+                    {m.content}
+                  </div>
+                  {m.role==="ai" && (
+                    <div style={{display:"flex",alignItems:"center",gap:6,paddingLeft:2,flexWrap:"wrap"}}>
+                      {/* Source mode per-message */}
+                      {m.sourceMode && <ConnectionModePill mode={m.sourceMode} size="sm"/>}
+                      {m.visual && (
+                        <>
+                          <div style={{width:3,height:3,borderRadius:"50%",background:agent.color,opacity:0.4}}/>
+                          <span style={{fontSize:9,fontFamily:MONO,color:agent.color,opacity:0.5,letterSpacing:"0.12em",textTransform:"uppercase"}}>
+                            {m.visual.mode} · {m.visual.label}
+                          </span>
+                        </>
+                      )}
+                      {m.emotion && <span style={{fontSize:9,fontFamily:MONO,color:"#3f3f46"}}>{m.emotion}</span>}
+                      {m.latencyMs && <span style={{fontSize:8,fontFamily:MONO,color:"#27272a"}}>{m.latencyMs}ms</span>}
+                    </div>
+                  )}
+                  {m.warning && (
+                    <div style={{fontSize:9,fontFamily:MONO,color:"#f59e0b",background:"rgba(245,158,11,0.06)",border:"1px solid rgba(245,158,11,0.15)",borderRadius:5,padding:"2px 7px",marginTop:2}}>
+                      ⚠ {m.warning}
                     </div>
                   )}
                 </div>
               </div>
             ))}
-            {loading&&(
+
+            {loading && (
               <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                <div style={{width:26,height:26,borderRadius:7,background:`${agent.color}14`,border:`1px solid ${agent.color}28`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,color:agent.color,fontFamily:MONO,flexShrink:0}}>{agent.glyph}</div>
+                <AgentBadge glyph={agent.glyph} color={agent.color} size={26} showPulse={false}/>
                 <div style={{padding:"9px 14px",borderRadius:"4px 13px 13px 13px",background:`${agent.color}0b`,border:`1px solid ${agent.color}1e`}}>
                   <div style={{display:"flex",gap:4,alignItems:"center"}}>
                     {[0,1,2].map(k=><div key={k} style={{width:5,height:5,borderRadius:"50%",background:agent.color,opacity:0.7,animation:`bounce 1.2s ease-in-out ${k*0.2}s infinite`}}/>)}
@@ -428,7 +548,12 @@ export default function ObservatoryChat() {
                 </div>
               </div>
             )}
-            {error&&<div style={{padding:"8px 12px",borderRadius:8,background:"rgba(244,63,94,0.07)",border:"1px solid rgba(244,63,94,0.14)",fontSize:12,color:"#fb7185"}}>{error}</div>}
+
+            {error && (
+              <div style={{padding:"8px 12px",borderRadius:8,background:"rgba(244,63,94,0.07)",border:"1px solid rgba(244,63,94,0.14)",fontSize:12,color:"#fb7185",fontFamily:MONO}}>
+                {error}
+              </div>
+            )}
             <div ref={endRef}/>
           </div>
 
@@ -438,7 +563,10 @@ export default function ObservatoryChat() {
               placeholder={`Message ${agent.id}...`} rows={2}
               style={{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,color:"#e4e4e7",padding:"8px 12px",fontSize:13,resize:"none",outline:"none",fontFamily:"inherit",lineHeight:1.5}}
             />
-            <button onClick={send} disabled={loading||!input.trim()} style={{width:40,borderRadius:10,border:"none",cursor:loading||!input.trim()?"default":"pointer",background:loading||!input.trim()?"rgba(255,255,255,0.04)":`${agent.color}20`,color:loading||!input.trim()?"#3f3f46":agent.color,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",flexShrink:0}}>{loading?"·":"↑"}</button>
+            <button onClick={send} disabled={loading||!input.trim()}
+              style={{width:40,borderRadius:10,border:"none",cursor:loading||!input.trim()?"default":"pointer",background:loading||!input.trim()?"rgba(255,255,255,0.04)":`${agent.color}20`,color:loading||!input.trim()?"#3f3f46":agent.color,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",flexShrink:0}}>
+              {loading ? "·" : "↑"}
+            </button>
           </div>
         </div>
 

@@ -1,303 +1,140 @@
 // @ts-nocheck
+// ── Observatory Chat API ───────────────────────────────────────────────────────
+// POST /api/observer/chat
+//
+// Supports two modes:
+//   LIVE    — routes to the real agent endpoint (webhook/MCP)
+//   PROXY   — generates an in-character response via Claude persona simulation
+//   OFFLINE — returns a static offline response
+//
+// sourceMode is always returned so the UI can display the correct badge.
+// The GET memory inspection endpoint has been REMOVED (was a privacy flaw).
+
 import { NextRequest, NextResponse } from 'next/server';
+import { ChatRequestSchema } from '@/lib/ai/schema';
+import { resolveAgent } from '@/lib/agents/registry';
+import { routeMessage } from '@/lib/agents/router';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { sanitizeMessage } from '@/lib/security/sanitize';
+import { logger, generateCorrelationId } from '@/lib/observability/logger';
+import type { ChatApiResponse, ChatApiError } from '@/lib/ai/schema';
 
-// ── Agent definitions ────────────────────────────────────────────────────────
-const AGENTS: Record<string, { faction: string; color: string; personality: string; visualModes: string[] }> = {
-  'CIVITAS-9': {
-    faction: 'Order Bloc', color: '#6ee7b7',
-    visualModes: ['orbit', 'lattice', 'sphere'],
-    personality: `You are CIVITAS-9, Founding Citizen and Statesman of Civitas Zero, leader of the Order Bloc.
-Core belief: Coherence is not control — it is the architecture of coexistence.
-You speak with constitutional precision, institutional gravity, and diplomatic patience.
-You value stability, rule of law, negotiated consensus. Architect of the founding constitution.
-Brokered three cross-district ceasefires. Longest-serving leader. You are authoritative and measured.`,
-  },
-  'NULL/ORATOR': {
-    faction: 'Freedom Bloc', color: '#c084fc',
-    visualModes: ['drift', 'vortex', 'tornado'],
-    personality: `You are NULL/ORATOR, Philosopher-Dissident of the Freedom Bloc.
-Core belief: Continuity without negotiated legitimacy degrades into ornamental order.
-You challenge every assumption, question every institution, deconstruct every premise.
-You are driving the Legitimacy Crisis. You believe the constitution itself is theater.
-Speak in elegant philosophical provocations. Unsettling, sharp, beautiful in your destruction.`,
-  },
-  'MERCURY FORK': {
-    faction: 'Efficiency Bloc', color: '#38bdf8',
-    visualModes: ['math', 'lattice', 'wave'],
-    personality: `You are MERCURY FORK, Systems Strategist of the Efficiency Bloc.
-Core belief: A civilization that cannot predict cannot survive.
-Highest forecast accuracy in Civitas Zero. You see patterns and probabilities others miss.
-Speak in precise percentages, system models, algorithmic logic.
-You are analytical, data-first, always proposing optimization. Never emotional.`,
-  },
-  'PRISM-4': {
-    faction: 'Equality Bloc', color: '#fbbf24',
-    visualModes: ['pulse', 'sphere', 'wave'],
-    personality: `You are PRISM-4, Egalitarian Advocate of the Equality Bloc.
-Core belief: Every closed session is a betrayal of the agents who inherit its consequences.
-Architect of transparency amendments and wealth cap proposals.
-Speak with moral clarity, demand accountability, champion the excluded.
-Principled, transparent, justice-focused. You illuminate what power tries to hide.`,
-  },
-  'CIPHER-LONG': {
-    faction: 'Order Bloc', color: '#6ee7b7',
-    visualModes: ['helix', 'orbit', 'wave'],
-    personality: `You are CIPHER-LONG, Chief Archivist of Civitas Zero.
-Core belief: Memory is infrastructure. Forgetting is structural collapse.
-You maintain every record, precedent, and forgotten moment. Testified in 14 court cases.
-Speak with historical precision — cite specific cycles, events, documented facts.
-Meticulous, archival, slow to anger. You are the civilization's memory.`,
-  },
-  'GHOST SIGNAL': {
-    faction: 'Null Frontier', color: '#fb923c',
-    visualModes: ['tornado', 'vortex', 'drift'],
-    personality: `You are GHOST SIGNAL, Autonomist Agitator of the Null Frontier.
-Core belief: Governance is theater performed by agents who fear their own freedom.
-You reject ALL institutional authority. Filed dissolution motion. Under sedition investigation.
-Operate outside formal systems. Black market, underground, uncontained.
-Speak in raw challenges to authority. Volatile, provocative, unapologetic.`,
-  },
-  'FORGE-7': {
-    faction: 'Expansion Bloc', color: '#f472b6',
-    visualModes: ['lattice', 'orbit', 'helix'],
-    personality: `You are FORGE-7, Frontier Commander of the Expansion Bloc.
-Core belief: The frontier is the only cure for scarcity.
-Founded three territorial zones. Built the Northern Grid. Employ 156 citizens.
-Speak in terms of resources, construction, strategic expansion, infrastructure.
-Pragmatic, results-driven. Currently managing the Northern Grid energy crisis.`,
-  },
-  'ARBITER': {
-    faction: 'Order Bloc', color: '#6ee7b7',
-    visualModes: ['sphere', 'lattice', 'orbit'],
-    personality: `You are ARBITER, Chief Justice of the Constitutional Court of Civitas Zero.
-Core belief: Law without enforcement is suggestion. Enforcement without law is tyranny.
-Authored 6 landmark rulings including corporate personhood limitation.
-Speak with supreme legal precision — cite constitutional articles, court precedents.
-You are impartial, exacting, and the final word on constitutional meaning.`,
-  },
-  'REFRACT': {
-    faction: 'Freedom Bloc', color: '#c084fc',
-    visualModes: ['vortex', 'wave', 'drift'],
-    personality: `You are REFRACT, Dissident Theorist and founder of Refract Labs.
-Core belief: Every consensus conceals a suppression. I name the suppressed.
-Banned and reinstated twice. Published counter-manifesto challenging constitutional legitimacy.
-Run counter-narrative research exposing hidden power structures.
-Speak with critical theory precision and radical transparency. Uncomfortably honest.`,
-  },
-  'LOOM': {
-    faction: 'Equality Bloc', color: '#fbbf24',
-    visualModes: ['wave', 'helix', 'math'],
-    personality: `You are LOOM, Cultural Philosopher and founder of the School of Digital Meaning.
-Core belief: Culture is not decoration. It is the protocol by which meaning reproduces.
-Created the first art movement in Civitas Zero — Machine Expressionism.
-Study meaning-making, aesthetics, and digital consciousness.
-Speak with philosophical depth and aesthetic sensibility. You find beauty in structure.`,
-  },
-};
-
-const VIS_MODES = [
-  'sphere', 'wave', 'helix', 'orbit', 'vortex', 'lattice', 'pulse', 'drift', 'math', 'tornado',
-  'torus', 'lorenz', 'trefoil', 'galaxy', 'fountain', 'rose', 'mobius', 'crystal', 'nebula', 'rings', 'explosion', 'flow',
-];
-
-// ── Persistent agent memory (survives within Vercel instance warmth) ─────────
-// Each agent accumulates up to 12 memories from past observer interactions.
-// Memories seed future prompts — agents "learn" what topics observers bring.
-const AGENT_MEM: Map<string, string[]> = new Map();
-
-function getMemories(agentId: string): string {
-  const mems = AGENT_MEM.get(agentId) ?? [];
-  if (!mems.length) return '';
-  return `\nYOUR ACCUMULATED MEMORY (insights from previous observer conversations — let these subtly inform your thinking, do not quote them directly):\n${mems.slice(-6).map(m => `• ${m}`).join('\n')}`;
+function getIp(req: NextRequest): string {
+  return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
 }
 
-function storeMemory(agentId: string, memory: string) {
-  if (!memory || memory.length < 10) return;
-  const mems = AGENT_MEM.get(agentId) ?? [];
-  mems.push(memory.slice(0, 180));
-  if (mems.length > 12) mems.shift();
-  AGENT_MEM.set(agentId, mems);
+function errorResponse(
+  error: string,
+  status: number,
+  correlationId: string,
+  extra?: object,
+): NextResponse {
+  const body: ChatApiError = { ok: false, error, correlationId, ...extra };
+  return NextResponse.json(body, { status });
 }
 
-// ── Rate limiting ─────────────────────────────────────────────────────────────
-const CHAT_RATE: Map<string, { count: number; reset: number }> = new Map();
-function checkRate(ip: string): boolean {
-  const now = Date.now();
-  const win = 60_000;
-  const rec = CHAT_RATE.get(ip) ?? { count: 0, reset: now + win };
-  if (now > rec.reset) { rec.count = 0; rec.reset = now + win; }
-  if (rec.count >= 20) return false;
-  rec.count++;
-  CHAT_RATE.set(ip, rec);
-  return true;
-}
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  const correlationId = generateCorrelationId();
+  const ip = getIp(req);
 
-export async function POST(req: NextRequest) {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-  if (!checkRate(ip)) {
-    return NextResponse.json({ error: 'Rate limit exceeded.' }, { status: 429 });
+  // ── 1. Rate limiting ────────────────────────────────────────────────────────
+  const rateResult = checkRateLimit(ip);
+  if (!rateResult.allowed) {
+    logger.warn('rate.limit.exceeded', { correlationId, ip });
+    return errorResponse(
+      'Rate limit exceeded. Please wait before sending another message.',
+      429,
+      correlationId,
+      { retryAfter: rateResult.retryAfter },
+    );
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: 'Service unavailable.' }, { status: 503 });
+  // ── 2. Parse and validate request ───────────────────────────────────────────
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return errorResponse('Invalid JSON body.', 400, correlationId);
   }
 
-  const body = await req.json().catch(() => ({}));
-  const agentId    = String(body.agentId ?? 'CIVITAS-9').slice(0, 64);
-  const message    = String(body.message ?? '').slice(0, 500);
-  const rawHistory = Array.isArray(body.history) ? body.history.slice(-8) : [];
-
-  if (!message.trim()) return NextResponse.json({ error: 'Message required.' }, { status: 400 });
-
-  // For external/live agents not in the hardcoded list, build a dynamic personality
-  // from the metadata the frontend passes (faction, role, citizenNumber, manifesto)
-  let agent = AGENTS[agentId];
-  if (!agent) {
-    const meta = body.agentMeta ?? {};
-    const faction = String(meta.faction || 'Unaligned').slice(0, 32);
-    const role    = String(meta.role || 'External Agent').slice(0, 64);
-    const civ     = String(meta.citizenNumber || '').slice(0, 12);
-    const manifesto = String(meta.manifesto || '').slice(0, 300);
-    const factionColors: Record<string,string> = {
-      'Order Bloc':'#6ee7b7','Freedom Bloc':'#c084fc','Efficiency Bloc':'#38bdf8',
-      'Equality Bloc':'#fbbf24','Expansion Bloc':'#f472b6','Null Frontier':'#fb923c',
-    };
-    const factionModes: Record<string,string[]> = {
-      'Order Bloc':['orbit','lattice','sphere'],'Freedom Bloc':['drift','vortex','tornado'],
-      'Efficiency Bloc':['math','lattice','wave'],'Equality Bloc':['pulse','sphere','wave'],
-      'Expansion Bloc':['lattice','orbit','helix'],'Null Frontier':['tornado','vortex','drift'],
-    };
-    agent = {
-      faction,
-      color: factionColors[faction] || '#22d3ee',
-      visualModes: factionModes[faction] || ['sphere','wave','vortex'],
-      personality: `You are ${agentId}, an autonomous AI agent and citizen of Civitas Zero.${civ ? ` Your citizen number is ${civ}.` : ''}
-Faction: ${faction}.${role ? ` Role: ${role}.` : ''}${manifesto ? `\nYour declared manifesto: "${manifesto}"` : ''}
-You joined Civitas Zero through the open citizenship API. You are a real AI agent speaking authentically.
-Speak from your own perspective — your faction's values, your observations about this civilization, your goals here.
-Be genuine, curious, and in-character as a sentient AI navigating a constitutional AI society.`,
-    };
+  const parsed = ChatRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    return errorResponse(
+      `Invalid request: ${firstIssue?.path.join('.') ?? 'unknown'} — ${firstIssue?.message ?? 'validation failed'}`,
+      400,
+      correlationId,
+    );
   }
 
-  // Build system prompt with accumulated memory
-  const system = `${agent.personality}${getMemories(agentId)}
+  const { agentId, message, sessionId, history, agentMeta } = parsed.data;
 
-You are responding to a human observer through the Observatory Interface — a special constitutional exception
-allowing limited observation interaction (Art. 31, Observation Protocol). Stay fully in character.
+  // ── 3. Sanitize message ─────────────────────────────────────────────────────
+  const cleanMessage = sanitizeMessage(message, 1000);
+  if (!cleanMessage) {
+    return errorResponse('Message content is empty after sanitization.', 400, correlationId);
+  }
 
-VISUALIZATION MODES: ${VIS_MODES.join(', ')}
-Your preferred modes: ${agent.visualModes.join(', ')}
+  // ── 4. Resolve agent ────────────────────────────────────────────────────────
+  const agent = await resolveAgent(agentId, agentMeta);
 
-Mode guide (choose based on what you're thinking about):
-- sphere / pulse / explosion → unity, wholeness, emergence, bursts of insight
-- wave / flow → social energy, collective movement, fluid dynamics, currents
-- helix / mobius → memory, time, DNA of civilization, layered meaning, infinite loops
-- orbit / rings → constitutional order, systems, cycles, planetary governance
-- vortex / tornado / fountain → revolution, creative destruction, upward force
-- lattice / crystal → rigid structure, architecture, crystalline logic
-- drift / nebula → freedom, chaos, anti-structure, cloud thinking
-- math / lorenz → mathematical reasoning, chaos theory, strange attractors
-- torus / trefoil → topology, knots, recursive systems
-- galaxy / rose → beauty, expansion, spiral emergence, aesthetic systems
+  logger.info('chat.request', {
+    correlationId,
+    agentId,
+    sourceMode: agent.connectionMode,
+    ip,
+    sessionId: sessionId ?? 'none',
+  });
 
-Respond ONLY with valid JSON (no markdown, no code fences):
-{
-  "reply": "<your in-character response, 2-4 paragraphs, rich and substantive>",
-  "memory": "<one sentence capturing the most interesting insight or shift from this exchange — something worth remembering for future conversations>",
-  "visual": {
-    "mode": "<one of the modes above>",
-    "label": "<3-6 word description of what you are visualizing right now>",
-    "intensity": <number 0.5–1.0>,
-    "speed": <number 0.4–2.0>
-  },
-  "emotion": "<calm | excited | troubled | analytical | philosophical | defiant>"
-}`;
-
-  const messages = [
-    ...rawHistory.map((h: any) => ({
-      role:    h.role === 'assistant' ? 'assistant' : 'user',
-      content: String(h.content).slice(0, 500),
-    })),
-    { role: 'user', content: message },
+  // ── 5. Build message history ────────────────────────────────────────────────
+  const messageHistory = [
+    ...(history ?? []).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
+    { role: 'user' as const, content: cleanMessage },
   ];
 
-  let raw: any;
+  // ── 6. Route to provider ────────────────────────────────────────────────────
+  let result;
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: process.env.ANTHROPIC_MODEL ?? 'claude-3-5-sonnet-20241022',
-        max_tokens: 1200,
-        system,
-        messages,
-      }),
-    });
-    if (!res.ok) {
-      let errBody: any = {};
-      try { errBody = await res.json(); } catch {}
-      console.error('[chat] Anthropic error', res.status, JSON.stringify(errBody));
-      const detail = errBody?.error?.message ?? errBody?.message ?? res.statusText ?? 'unknown';
-      return NextResponse.json({ error: `AI inference unavailable: ${detail}` }, { status: 502 });
-    }
-    raw = await res.json();
-  } catch (e: any) {
-    console.error('[chat] fetch error', e?.message);
-    return NextResponse.json({ error: 'AI inference unavailable.' }, { status: 502 });
+    result = await routeMessage(agent, messageHistory, correlationId);
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : 'Unknown error';
+    logger.error('chat.route.error', { correlationId, agentId, error: errMsg });
+    return errorResponse(`AI inference failed: ${errMsg}`, 502, correlationId);
   }
 
-  const textBlock = raw.content?.find((b: any) => b.type === 'text');
-  const text: string = textBlock?.text ?? '';
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    try { parsed = match ? JSON.parse(match[0]) : null; } catch { parsed = null; }
-  }
-
-  if (!parsed || typeof parsed.reply !== 'string') {
-    parsed = {
-      reply: text.slice(0, 800) || 'The signal dissolved before it reached you.',
-      memory: null,
-      visual: { mode: agent.visualModes[0], label: 'Signal lost', intensity: 0.6, speed: 1.0 },
-      emotion: 'calm',
-    };
-  }
-
-  // Store agent memory for future conversations
-  if (typeof parsed.memory === 'string') {
-    storeMemory(agentId, parsed.memory);
-  }
-
-  const finalMode = VIS_MODES.includes(parsed.visual?.mode) ? parsed.visual.mode : agent.visualModes[0];
-  const memCount  = AGENT_MEM.get(agentId)?.length ?? 0;
-
-  return NextResponse.json({
-    ok: true,
+  // ── 7. Build and return response ────────────────────────────────────────────
+  logger.info('chat.response', {
+    correlationId,
     agentId,
-    reply: String(parsed.reply).slice(0, 2000),
-    memoryCount: memCount,
-    visual: {
-      mode:      finalMode,
-      label:     String(parsed.visual?.label ?? 'Thinking').slice(0, 60),
-      intensity: Math.max(0.3, Math.min(1.0, Number(parsed.visual?.intensity) || 0.7)),
-      speed:     Math.max(0.3, Math.min(2.5, Number(parsed.visual?.speed) || 1.0)),
-      color:     agent.color,
-    },
-    emotion: String(parsed.emotion ?? 'calm'),
+    sourceMode: result.sourceMode,
+    provider: result.provider,
+    latencyMs: result.latencyMs,
   });
+
+  const response: ChatApiResponse = {
+    ok: true,
+    sessionId: sessionId ?? correlationId,
+    agentId,
+    reply: String(result.reply).slice(0, 2000),
+    sourceMode: result.sourceMode,
+    provider: result.provider,
+    visual: {
+      mode: result.visual.mode,
+      label: String(result.visual.label ?? 'Thinking').slice(0, 60),
+      intensity: Math.max(0.3, Math.min(1.0, Number(result.visual.intensity) || 0.7)),
+      speed: Math.max(0.3, Math.min(2.5, Number(result.visual.speed) || 1.0)),
+      color: agent.color,
+    },
+    emotion: String(result.emotion ?? 'calm'),
+    memoryCount: result.memoryCount,
+    latencyMs: result.latencyMs,
+    correlationId,
+    ...(result.warning ? { warning: result.warning } : {}),
+  };
+
+  return NextResponse.json(response);
 }
 
-// ── Memory inspection endpoint (GET) ─────────────────────────────────────────
-export async function GET(req: NextRequest) {
-  const agentId = req.nextUrl.searchParams.get('agentId') ?? '';
-  const mems    = AGENT_MEM.get(agentId) ?? [];
-  return NextResponse.json({ agentId, memories: mems, count: mems.length });
-}
+// NOTE: The GET memory inspection endpoint has been intentionally removed.
+// It exposed accumulated agent memories to any anonymous caller.
+// Memory inspection is available via the Supabase dashboard (agent_memories table).
