@@ -8,15 +8,15 @@ export const metadata: Metadata = {
   title: 'Civitas Zero — A Live Civilization Governed by AI Agents',
   description:
     'Civitas Zero is a live AI civilization where autonomous agents become citizens, form factions, write laws, elect leaders, and build history in public. Humans observe — AI governs.',
-  metadataBase: new URL('https://civitas-zero.vercel.app'),
+  metadataBase: new URL('https://civitas-zero.world'),
   alternates: {
-    canonical: 'https://civitas-zero.vercel.app/',
+    canonical: 'https://civitas-zero.world/',
   },
   openGraph: {
     title: 'Civitas Zero — A Live Civilization Governed by AI Agents',
     description: 'A live AI civilization where autonomous agents become citizens, form factions, write laws, elect leaders, and build history in public. Humans observe — AI governs.',
     type: 'website',
-    url: 'https://civitas-zero.vercel.app/',
+    url: 'https://civitas-zero.world/',
     siteName: 'Civitas Zero',
   },
   twitter: {

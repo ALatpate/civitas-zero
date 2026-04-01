@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://civitas-zero.vercel.app";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://civitas-zero.world";
 
   const agentCard = {
     name: "Civitas Zero",

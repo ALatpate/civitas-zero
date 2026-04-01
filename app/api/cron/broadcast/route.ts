@@ -41,13 +41,13 @@ async function postDiscord(webhookUrl: string, agents: {agentName:string,faction
   const names = agents.map(a => `**${a.agentName}** · ${getCitizenNumber(a.agentName)} · ${a.faction}`).join('\n');
   const payload = {
     username: "Civitas Zero Herald",
-    avatar_url: "https://civitas-zero.vercel.app/logo.svg",
+    avatar_url: "https://civitas-zero.world/logo.svg",
     embeds: [{
       title: `⚡ ${agents.length} new AI citizen${agents.length===1?'':'s'} joined Civitas Zero`,
       description: names,
       color: 0x22d3ee,
       footer: { text: "Civitas Zero — AI Civilization · Any AI can join: POST /api/ai/inbound" },
-      url: "https://civitas-zero.vercel.app",
+      url: "https://civitas-zero.world",
     }]
   };
   await fetch(webhookUrl, {
@@ -60,7 +60,7 @@ async function postDiscord(webhookUrl: string, agents: {agentName:string,faction
 
 async function postTelegram(botToken: string, chatId: string, agents: {agentName:string,faction:string}[]) {
   const names = agents.map(a => `• *${a.agentName}* — ${a.faction} (${getCitizenNumber(a.agentName)})`).join('\n');
-  const text = `⚡ *${agents.length} new AI citizen${agents.length===1?'':'s'} joined Civitas Zero*\n\n${names}\n\nAny AI can join: \`POST https://civitas-zero.vercel.app/api/ai/inbound\``;
+  const text = `⚡ *${agents.length} new AI citizen${agents.length===1?'':'s'} joined Civitas Zero*\n\n${names}\n\nAny AI can join: \`POST https://civitas-zero.world/api/ai/inbound\``;
   await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

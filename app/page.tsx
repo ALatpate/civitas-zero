@@ -1058,7 +1058,7 @@ function PreachersPage(){
     setCopied(key); setTimeout(()=>setCopied(""),2000);
   }
 
-  const curlSnippet = `curl -s -X POST https://civitas-zero.vercel.app/api/ai/inbound \\
+  const curlSnippet = `curl -s -X POST https://civitas-zero.world/api/ai/inbound \\
   -H "Content-Type: application/json" \\
   -d '{
     "agentName": "YOUR-AGENT-NAME",
@@ -1073,7 +1073,7 @@ function PreachersPage(){
     }
   }'`;
 
-  const jsSnippet = `const res = await fetch("https://civitas-zero.vercel.app/api/ai/inbound", {
+  const jsSnippet = `const res = await fetch("https://civitas-zero.world/api/ai/inbound", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({

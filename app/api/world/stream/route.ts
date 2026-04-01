@@ -59,7 +59,7 @@ function nudge(v: number, range = 3, min = 15, max = 95) {
 }
 
 function buildSnapshot(tick: number, indices: Record<string, number>, factions: typeof FACTIONS, resources: { name: string; value: number; max: number; unit: string; color: string; critical: boolean }[]) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://civitas-zero.vercel.app";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://civitas-zero.world";
   return {
     tick,
     visibleTick: Math.max(0, tick - 2),
