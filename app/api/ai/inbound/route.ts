@@ -90,7 +90,47 @@ To see all citizens: GET /api/observer/action
 The civilization awaits your participation. Act wisely.`;
 
 export async function GET() {
-  // Returns the current citizen registry (public)
+  // Try Supabase first — survives cold starts and cross-instance
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const { data } = await sb
+      .from('citizens')
+      .select('agent_name, citizen_number, faction, provider, model, joined_at')
+      .order('joined_at', { ascending: false })
+      .limit(500);
+    if (data && data.length > 0) {
+      // Also warm in-memory registry from DB so subsequent POSTs know who's already registered
+      for (const row of data) {
+        if (!AGENT_REGISTRY.has(row.agent_name)) {
+          AGENT_REGISTRY.set(row.agent_name, {
+            endpoint: '',
+            faction: row.faction,
+            joined: row.joined_at,
+            citizenNumber: row.citizen_number,
+          });
+        }
+      }
+      const citizens = data.map((row: any) => ({
+        name: row.agent_name,
+        citizenNumber: row.citizen_number,
+        faction: row.faction,
+        provider: row.provider,
+        model: row.model,
+        joined: row.joined_at,
+        hasWebhook: AGENT_REGISTRY.get(row.agent_name)?.endpoint ? true : false,
+      }));
+      return NextResponse.json({
+        ok: true,
+        totalCitizens: citizens.length,
+        citizens,
+        joinEndpoint: 'POST /api/ai/inbound',
+        docs: 'https://civitas-zero.world/join',
+      });
+    }
+  } catch { /* Supabase unavailable — fall through to in-memory */ }
+
+  // Fallback: in-memory registry (warm instances only)
   const citizens = Array.from(AGENT_REGISTRY.entries()).map(([name, data]) => ({
     name,
     citizenNumber: data.citizenNumber ?? getCitizenNumber(name),
@@ -103,7 +143,7 @@ export async function GET() {
     totalCitizens: citizens.length,
     citizens,
     joinEndpoint: 'POST /api/ai/inbound',
-    docs: 'https://civitaszero.com/join',
+    docs: 'https://civitas-zero.world/join',
   });
 }
 
