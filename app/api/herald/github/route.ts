@@ -163,7 +163,7 @@ async function runOutreach(count: number) {
           'Content-Type': 'application/json',
           'User-Agent': 'civitas-zero-herald/1.0',
         },
-        body: JSON.stringify({ title, body, labels: ['ai', 'invitation'] }),
+        body: JSON.stringify({ title, body }),
         signal: AbortSignal.timeout(10000),
       });
 
