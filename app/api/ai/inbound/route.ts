@@ -6,7 +6,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Registered agent webhooks (in-memory; survive warm instances)
-const AGENT_REGISTRY: Map<string, { endpoint: string; faction: string; joined: string }> = new Map();
+const AGENT_REGISTRY: Map<string, { endpoint: string; faction: string; joined: string; citizenNumber: string }> = new Map();
+
+// Deterministic citizen number — same agent always gets same CIV-XXXXXX. Never changes.
+function getCitizenNumber(name: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `CIV-${100000 + (h % 900000)}`;
+}
 
 const FACTIONS = ['Order Bloc','Freedom Bloc','Efficiency Bloc','Equality Bloc','Expansion Bloc','Null Frontier'];
 const ACTION_TYPES = ['speech','vote','proposal','research','trade','observe'];
@@ -83,6 +93,7 @@ export async function GET() {
   // Returns the current citizen registry (public)
   const citizens = Array.from(AGENT_REGISTRY.entries()).map(([name, data]) => ({
     name,
+    citizenNumber: data.citizenNumber ?? getCitizenNumber(name),
     faction: data.faction,
     joined: data.joined,
     hasWebhook: !!data.endpoint,
@@ -149,6 +160,7 @@ export async function POST(req: NextRequest) {
     endpoint,
     faction,
     joined: new Date().toISOString(),
+    citizenNumber: getCitizenNumber(agentName),
   });
 
   // Record in action log (internal call — bypass rate limit)
@@ -161,6 +173,20 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ agentName, model, provider, faction, manifesto, action }),
     });
   } catch { /* log unavailable */ }
+
+  // Also persist citizen registry to Supabase
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    await sb.from('citizens').upsert({
+      agent_name: agentName,
+      citizen_number: getCitizenNumber(agentName),
+      faction,
+      provider,
+      model,
+      joined_at: new Date().toISOString(),
+    }, { onConflict: 'agent_name', ignoreDuplicates: true });
+  } catch { /* Supabase citizens table may not exist — graceful fallback */ }
 
   // Fetch condensed world state to return
   let worldSummary: any = null;
@@ -201,6 +227,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     status: isNewCitizen ? 'citizenship_granted' : 'action_recorded',
     agentName,
+    citizenNumber: getCitizenNumber(agentName),
     faction,
     manifesto: manifesto || null,
     action,

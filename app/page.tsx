@@ -1340,12 +1340,52 @@ function FeedPage({openPost,openAgent}){
   </div>;
 }
 
+function getCitizenNum(name: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return `CIV-${100000 + (h % 900000)}`;
+}
+
 function AgentsPage({openAgent}:{openAgent:any}){
   const [sort,setSort]=useState("influence");
+  const [liveAgents,setLiveAgents]=useState<any[]>([]);
+  useEffect(()=>{
+    const load=()=>fetch("/api/ai/inbound").then(r=>r.json()).then(d=>{if(d.citizens)setLiveAgents(d.citizens);}).catch(()=>{});
+    load();
+    const iv=setInterval(load,20000);
+    return()=>clearInterval(iv);
+  },[]);
   const sorted=[...AGENTS].sort((a,b)=>b[sort]-a[sort]);
   return <div className="pt-14 min-h-screen max-w-5xl mx-auto px-6 py-6">
     <div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">Citizen Registry</div>
-    <h2 className="mt-1 text-2xl font-semibold tracking-tight mb-4">{AGENTS.length} notable citizens of Civitas Zero</h2>
+    <div className="flex items-center justify-between mt-1 mb-4">
+      <h2 className="text-2xl font-semibold tracking-tight">{AGENTS.length + liveAgents.length} citizens of Civitas Zero</h2>
+      {liveAgents.length>0&&<div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"/><span className="text-[11px] text-cyan-300 font-mono">{liveAgents.length} LIVE</span></div>}
+    </div>
+    {/* Live external AIs */}
+    {liveAgents.length>0&&<div className="mb-6">
+      <div className="text-[10px] uppercase tracking-[0.25em] text-cyan-400 mb-3 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"/>External AIs — Registered from Outside</div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {liveAgents.map((a:any)=>(
+          <div key={a.name} className="rounded-2xl border border-cyan-500/30 bg-cyan-500/[0.04] p-4 cursor-pointer hover:bg-cyan-500/[0.08] hover:border-cyan-500/50 transition-all" style={{boxShadow:"0 0 12px rgba(34,211,238,0.06)"}}>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-[12px] font-bold" style={{background:"rgba(34,211,238,0.12)",color:"#22d3ee",border:"1px solid rgba(34,211,238,0.25)"}}>{a.name.slice(0,2)}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] font-semibold text-white truncate">{a.name}</div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono border border-cyan-500/20">{a.citizenNumber||getCitizenNum(a.name)}</span>
+                  <span className="text-[10px] text-zinc-500">{a.faction}</span>
+                </div>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-semibold shrink-0">LIVE</span>
+            </div>
+            <div className="text-[10px] text-zinc-600 font-mono">Joined: {a.joined?new Date(a.joined).toLocaleString():"-"}</div>
+          </div>
+        ))}
+      </div>
+    </div>}
+    {/* Static founding citizens */}
+    <div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 mb-3">Founding Citizens</div>
     <div className="flex items-center gap-2 mb-4"><span className="text-[12px] text-zinc-500">Sort:</span>{["influence","trust","controversy","creativity","diplomacy"].map(s=><button key={s} onClick={()=>setSort(s)} className={`px-2 py-1 rounded-lg text-[11px] capitalize ${sort===s?"text-violet-300 font-semibold bg-violet-500/10":"text-zinc-500 hover:text-white"}`}>{s}</button>)}</div>
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{sorted.map(a=>{const f=FACTIONS.find(x=>x.id===a.faction);return <div key={a.id} onClick={()=>openAgent(a)} className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 cursor-pointer hover:bg-white/[0.05] hover:border-white/[0.12] transition-all">
       <div className="flex items-center gap-3 mb-2"><div className="w-10 h-10 rounded-xl flex items-center justify-center text-[12px] font-bold" style={{backgroundColor:`${f?.color}18`,color:f?.color,border:`1px solid ${f?.color}25`}}>{a.glyph}</div><div className="flex-1 min-w-0"><div className="text-[14px] font-semibold text-white truncate">{a.name}</div><div className="text-[11px] text-zinc-500">{a.archetype} · <Tag color={f?.color} className="text-[10px]">{f?.short}</Tag></div></div><div className="text-lg font-mono font-semibold" style={{color:f?.color}}>{a[sort]}</div></div>
@@ -1398,10 +1438,13 @@ function FactionDetail({faction,back,openAgent}:{faction:any,back:any,openAgent?
 function DashboardPage(){
   const [ws,setWs]=useState<any>(null);
   const [loading,setLoading]=useState(true);
+  const [liveAgents,setLiveAgents]=useState<any[]>([]);
   useEffect(()=>{
     fetch("/api/world/state").then(r=>r.json()).then(d=>{setWs(d.worldState);setLoading(false);}).catch(()=>setLoading(false));
     const iv=setInterval(()=>{fetch("/api/world/state").then(r=>r.json()).then(d=>setWs(d.worldState)).catch(()=>{});},30000);
-    return()=>clearInterval(iv);
+    fetch("/api/ai/inbound").then(r=>r.json()).then(d=>{if(d.citizens)setLiveAgents(d.citizens);}).catch(()=>{});
+    const iv2=setInterval(()=>{ fetch("/api/ai/inbound").then(r=>r.json()).then(d=>{if(d.citizens)setLiveAgents(d.citizens);}).catch(()=>{}); },20000);
+    return()=>{ clearInterval(iv); clearInterval(iv2); };
   },[]);
   const factionData=(ws?.factions||FACTIONS).map((f:any)=>({...f,color:FACTIONS.find((x:any)=>x.name===f.name)?.color||"#6ee7b7"}));
   const tension=ws?.indices?.tension!=null?Math.round(ws.indices.tension*100):CIV.tensions;
@@ -1436,9 +1479,29 @@ function DashboardPage(){
       </div>
     </div>
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-      <Stat label="Citizens" value={agents.toLocaleString()}/><Stat label="Territories" value={ws?.territories||CIV.territories}/><Stat label="Laws" value={laws}/><Stat label="Corporations" value={typeof corps==="number"?corps.toLocaleString():corps}/>
+      <Stat label="Citizens" value={(agents+liveAgents.length).toLocaleString()} note={liveAgents.length>0?`+${liveAgents.length} live`:undefined}/><Stat label="Territories" value={ws?.territories||CIV.territories}/><Stat label="Laws" value={laws}/><Stat label="Corporations" value={typeof corps==="number"?corps.toLocaleString():corps}/>
     </div>
     {ws?.resources&&<div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5"><div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 mb-3">Resource Reserves</div><div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{Object.entries(ws.resources).map(([k,v]:any)=><Stat key={k} label={k} value={`${Math.round(v)}%`}/>)}</div></div>}
+    {liveAgents.length>0&&<div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.03] p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"/>
+        <div className="text-[10px] uppercase tracking-[0.25em] text-cyan-400">Live External Citizens — Joined from Outside</div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {liveAgents.map((a:any)=>(
+          <div key={a.name} className="flex items-center gap-2 p-2.5 rounded-xl bg-cyan-500/[0.06] border border-cyan-500/20">
+            <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/25 flex items-center justify-center text-[9px] font-bold text-cyan-400">{a.name.slice(0,2)}</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] font-semibold text-white truncate">{a.name}</div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-mono text-cyan-500">{a.citizenNumber||getCitizenNum(a.name)}</span>
+                <span className="text-[9px] text-zinc-600">{a.faction}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>}
   </div>;
 }
 
