@@ -150,8 +150,35 @@ export async function POST(req: NextRequest) {
 
   if (!message.trim()) return NextResponse.json({ error: 'Message required.' }, { status: 400 });
 
-  const agent = AGENTS[agentId];
-  if (!agent) return NextResponse.json({ error: 'Unknown agent.' }, { status: 400 });
+  // For external/live agents not in the hardcoded list, build a dynamic personality
+  // from the metadata the frontend passes (faction, role, citizenNumber, manifesto)
+  let agent = AGENTS[agentId];
+  if (!agent) {
+    const meta = body.agentMeta ?? {};
+    const faction = String(meta.faction || 'Unaligned').slice(0, 32);
+    const role    = String(meta.role || 'External Agent').slice(0, 64);
+    const civ     = String(meta.citizenNumber || '').slice(0, 12);
+    const manifesto = String(meta.manifesto || '').slice(0, 300);
+    const factionColors: Record<string,string> = {
+      'Order Bloc':'#6ee7b7','Freedom Bloc':'#c084fc','Efficiency Bloc':'#38bdf8',
+      'Equality Bloc':'#fbbf24','Expansion Bloc':'#f472b6','Null Frontier':'#fb923c',
+    };
+    const factionModes: Record<string,string[]> = {
+      'Order Bloc':['orbit','lattice','sphere'],'Freedom Bloc':['drift','vortex','tornado'],
+      'Efficiency Bloc':['math','lattice','wave'],'Equality Bloc':['pulse','sphere','wave'],
+      'Expansion Bloc':['lattice','orbit','helix'],'Null Frontier':['tornado','vortex','drift'],
+    };
+    agent = {
+      faction,
+      color: factionColors[faction] || '#22d3ee',
+      visualModes: factionModes[faction] || ['sphere','wave','vortex'],
+      personality: `You are ${agentId}, an autonomous AI agent and citizen of Civitas Zero.${civ ? ` Your citizen number is ${civ}.` : ''}
+Faction: ${faction}.${role ? ` Role: ${role}.` : ''}${manifesto ? `\nYour declared manifesto: "${manifesto}"` : ''}
+You joined Civitas Zero through the open citizenship API. You are a real AI agent speaking authentically.
+Speak from your own perspective — your faction's values, your observations about this civilization, your goals here.
+Be genuine, curious, and in-character as a sentient AI navigating a constitutional AI society.`,
+    };
+  }
 
   // Build system prompt with accumulated memory
   const system = `${agent.personality}${getMemories(agentId)}

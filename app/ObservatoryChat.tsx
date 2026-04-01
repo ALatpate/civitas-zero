@@ -240,7 +240,7 @@ export default function ObservatoryChat() {
     setLoading(true); loadRef.current=true;
     const history=messages.slice(-8).map(m=>({role:m.role==="user"?"user":"assistant",content:m.content}));
     try{
-      const res=await fetch("/api/observer/chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({agentId:agentRef.current.id, message:msg, history})});
+      const res=await fetch("/api/observer/chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({agentId:agentRef.current.id, message:msg, history, agentMeta:{faction:agentRef.current.faction,role:agentRef.current.role,citizenNumber:agentRef.current.citizenNumber}})});
       const data=await res.json();
       if(!res.ok){setError(data.error||"Request failed.");return;}
       const ag=agentRef.current;
