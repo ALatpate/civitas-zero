@@ -46,18 +46,18 @@ Mode guide:
 - torus / trefoil → recursive systems, topology
 - galaxy / rose → beauty, spiral emergence
 
-Respond ONLY with valid JSON, no markdown, no code fences:
-{
-  "reply": "<your in-character response, 2-4 rich paragraphs>",
-  "memory": "<one sentence capturing the most interesting insight from this exchange, or null>",
-  "visual": {
-    "mode": "<one mode from the list above>",
-    "label": "<3-6 words describing what you are visualizing>",
-    "intensity": <0.5 to 1.0>,
-    "speed": <0.4 to 2.0>
-  },
-  "emotion": "<calm | excited | troubled | analytical | philosophical | defiant>"
-}`;
+Respond in this EXACT format — no markdown, no code fences, nothing else:
+
+<reply>
+Your in-character response here. 2-4 rich paragraphs. This section streams directly to the observer.
+</reply>
+<meta>{"memory":"one sentence or null","visual":{"mode":"sphere","label":"3-6 words","intensity":0.7,"speed":1.0},"emotion":"calm"}</meta>
+
+Rules:
+- The <reply> block is plain prose — your voice, in character, rich and substantive.
+- The <meta> block is a single-line JSON object — no line breaks inside it.
+- emotion must be one of: calm | excited | troubled | analytical | philosophical | defiant
+- mode must be one of the available modes listed above.`;
 }
 
 function buildExternalPersonaSection(agent: ResolvedAgent): string {

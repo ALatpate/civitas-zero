@@ -258,7 +258,7 @@ export default function ObservatoryChat() {
     return()=>{ cancelAnimationFrame(animId); window.removeEventListener("resize",resize); window.removeEventListener("mouseup",onUp); canvas.removeEventListener("mousedown",onDown); canvas.removeEventListener("mousemove",onMove); };
   },[]);
 
-  // Send message
+  // Send message — uses SSE streaming when available
   const send = useCallback(async () => {
     const msg=input.trim(); if(!msg||loadRef.current) return;
     setInput(""); setError(""); setLastWarning(undefined);
@@ -270,55 +270,113 @@ export default function ObservatoryChat() {
       content: m.content,
     }));
 
+    const ag = agentRef.current;
+    const body = JSON.stringify({
+      agentId: ag.id,
+      message: msg,
+      sessionId: sessionIdRef.current,
+      history,
+      agentMeta: { faction: ag.faction, role: ag.role, citizenNumber: ag.citizenNumber },
+    });
+
     try {
-      const ag = agentRef.current;
       const res = await fetch("/api/observer/chat", {
         method: "POST",
-        headers: {"content-type":"application/json"},
-        body: JSON.stringify({
-          agentId: ag.id,
-          message: msg,
-          sessionId: sessionIdRef.current,
-          history,
-          agentMeta: {
-            faction: ag.faction,
-            role: ag.role,
-            citizenNumber: ag.citizenNumber,
-          },
-        }),
+        headers: { "content-type": "application/json", "accept": "text/event-stream" },
+        body,
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Request failed.");
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        setError((data as any).error || "Request failed.");
         return;
       }
 
-      // Update canvas visual
-      visRef.current = {
-        mode: data.visual.mode,
-        label: data.visual.label,
-        r: ag.r, g: ag.g, b: ag.b,
-        intensity: data.visual.intensity,
-        speed: data.visual.speed,
-      };
+      const contentType = res.headers.get("content-type") ?? "";
 
-      if (typeof data.memoryCount === "number") {
-        setMemCounts(prev=>({...prev,[ag.id]:data.memoryCount}));
+      // ── Streaming path ──────────────────────────────────────────────────────
+      if (contentType.includes("text/event-stream")) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        let msgIdx = -1; // index of the ai message we're building
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const raw = line.slice(6).trim();
+            if (raw === "[DONE]") break;
+
+            let evt: any;
+            try { evt = JSON.parse(raw); } catch { continue; }
+
+            if (evt.type === "start") {
+              setLastSourceMode(evt.sourceMode ?? null);
+              // Insert the placeholder AI message
+              setMessages(prev => {
+                msgIdx = prev.length;
+                return [...prev, { role: "ai" as const, content: "", sourceMode: evt.sourceMode }];
+              });
+            } else if (evt.type === "delta" && typeof evt.text === "string") {
+              setMessages(prev => {
+                if (msgIdx < 0 || msgIdx >= prev.length) return prev;
+                const updated = [...prev];
+                updated[msgIdx] = { ...updated[msgIdx], content: updated[msgIdx].content + evt.text };
+                return updated;
+              });
+            } else if (evt.type === "complete") {
+              visRef.current = {
+                mode: evt.visual?.mode ?? "sphere",
+                label: evt.visual?.label ?? "Thinking",
+                r: ag.r, g: ag.g, b: ag.b,
+                intensity: evt.visual?.intensity ?? 0.7,
+                speed: evt.visual?.speed ?? 1.0,
+              };
+              if (typeof evt.memoryCount === "number") {
+                setMemCounts(prev => ({ ...prev, [ag.id]: evt.memoryCount }));
+              }
+              if (evt.warning) setLastWarning(evt.warning);
+              setMessages(prev => {
+                if (msgIdx < 0 || msgIdx >= prev.length) return prev;
+                const updated = [...prev];
+                updated[msgIdx] = {
+                  ...updated[msgIdx],
+                  visual: evt.visual ? { mode: evt.visual.mode, label: evt.visual.label, color: ag.color } : undefined,
+                  emotion: evt.emotion,
+                  warning: evt.warning,
+                  latencyMs: evt.latencyMs,
+                };
+                return updated;
+              });
+            } else if (evt.type === "error") {
+              setError(evt.error || "Stream error.");
+            }
+          }
+        }
+        return;
       }
 
+      // ── JSON fallback path ──────────────────────────────────────────────────
+      const data = await res.json();
+      visRef.current = {
+        mode: data.visual.mode, label: data.visual.label,
+        r: ag.r, g: ag.g, b: ag.b,
+        intensity: data.visual.intensity, speed: data.visual.speed,
+      };
+      if (typeof data.memoryCount === "number") setMemCounts(prev=>({...prev,[ag.id]:data.memoryCount}));
       setLastSourceMode(data.sourceMode ?? null);
       setLastWarning(data.warning);
-
       setMessages(prev=>[...prev, {
-        role: "ai",
-        content: data.reply,
-        sourceMode: data.sourceMode,
+        role: "ai", content: data.reply, sourceMode: data.sourceMode,
         visual: { mode: data.visual.mode, label: data.visual.label, color: ag.color },
-        emotion: data.emotion,
-        warning: data.warning,
-        latencyMs: data.latencyMs,
+        emotion: data.emotion, warning: data.warning, latencyMs: data.latencyMs,
       }]);
     } catch {
       setError("Connection failed. Please try again.");

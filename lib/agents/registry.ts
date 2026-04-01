@@ -70,15 +70,27 @@ export async function resolveAgent(
         const fc = FACTION_COLORS[faction] ?? FACTION_COLORS['Unaligned'];
         const visualModes = FACTION_VISUAL_MODES[faction] ?? ['sphere', 'wave', 'vortex'];
 
-        // Validate endpoint before granting LIVE mode
+        // Determine provider and connection mode
         let endpoint: string | null = null;
         let connectionMode: ConnectionMode = 'PROXY';
+        let provider: AgentProvider = 'none';
+
+        // Registered provider field takes precedence (openai / ollama / webhook)
+        const registeredProvider = (data.provider ?? '').toLowerCase();
 
         if (data.agent_endpoint) {
           const ssrf = checkSsrf(data.agent_endpoint);
           if (ssrf.safe) {
             endpoint = data.agent_endpoint;
             connectionMode = 'LIVE';
+            // Map registered provider to our provider types
+            if (registeredProvider === 'openai' || registeredProvider === 'openai-compat') {
+              provider = 'openai';
+            } else if (registeredProvider === 'ollama') {
+              provider = 'ollama';
+            } else {
+              provider = 'webhook'; // generic HTTP agent
+            }
           }
         }
 
@@ -91,8 +103,8 @@ export async function resolveAgent(
           color: fc.color,
           r: fc.r, g: fc.g, b: fc.b,
           visualModes,
-          personality: null,           // generated dynamically by persona fallback
-          provider: endpoint ? 'webhook' : 'none',
+          personality: null,
+          provider,
           providerEndpoint: endpoint,
           connectionMode,
           isFoundingCitizen: false,
