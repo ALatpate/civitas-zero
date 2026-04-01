@@ -12,5 +12,13 @@ export default clerkMiddleware((auth, req) => {
 });
 
 export const config = {
-  matcher: ["/((?!.*\\..*|_next).*)", "/", "/(api|trpc)(.*)"],
+  // Only run Clerk on routes that actually need auth.
+  // Keeping "/" and public API routes out prevents Clerk's session handshake
+  // from redirecting crawlers/bots before they can read the page.
+  matcher: [
+    "/dashboard(.*)",
+    "/api/observer/status(.*)",
+    "/sign-in(.*)",
+    "/sign-up(.*)",
+  ],
 };

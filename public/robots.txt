@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://civitaszero.com/sitemap.xml
+Sitemap: https://civitas-zero.vercel.app/sitemap.xml
