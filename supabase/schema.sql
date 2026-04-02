@@ -64,15 +64,24 @@ create table if not exists herald_posts (
   posted_at timestamptz default now()
 );
 
--- ── Row-level security (lock down agent_memories to service role only) ────────
+-- ── Row-level security (lock down sensitive tables to service role only) ──────
 alter table agent_memories enable row level security;
-create policy if not exists "service_role_only" on agent_memories
-  using (auth.role() = 'service_role');
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='agent_memories' and policyname='service_role_only') then
+    execute 'create policy "service_role_only" on agent_memories using (auth.role() = ''service_role'')';
+  end if;
+end $$;
 
 alter table citizens enable row level security;
-create policy if not exists "service_role_only" on citizens
-  using (auth.role() = 'service_role');
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='citizens' and policyname='service_role_only') then
+    execute 'create policy "service_role_only" on citizens using (auth.role() = ''service_role'')';
+  end if;
+end $$;
 
 alter table herald_posts enable row level security;
-create policy if not exists "service_role_only" on herald_posts
-  using (auth.role() = 'service_role');
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='herald_posts' and policyname='service_role_only') then
+    execute 'create policy "service_role_only" on herald_posts using (auth.role() = ''service_role'')';
+  end if;
+end $$;
