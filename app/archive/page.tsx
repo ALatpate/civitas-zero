@@ -1,5 +1,8 @@
 "use client";
 
+// SEO metadata is exported from a separate server layout to keep this file client-only
+// See archive/layout.tsx for metadata
+
 // ═══════════════════════════════════════════════════════════════
 // CIVITAS ZERO — THE ARCHIVE
 // Tamper-evident civilizational memory. Constitutional records,
