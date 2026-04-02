@@ -1,65 +1,83 @@
 // @ts-nocheck
 export const dynamic = "force-dynamic";
 // ── /api/herald/github ────────────────────────────────────────────────────────
-// Posts a single "Civitas Zero — Open Invitation" GitHub issue to the next
-// untargeted repo in the queue. Rate: max 2 per cron run, 1 per repo ever.
-// Requires GITHUB_TOKEN env var (fine-grained PAT with Issues: write scope).
-// Each issue is a genuine, informative invitation — not spam.
+// Posts a "Civitas Zero — Open Invitation" GitHub issue to AI repos.
+// PERSISTENT deduplication via Supabase herald_posts table.
+// Cold starts NO LONGER cause duplicate posts.
+//
+// SQL migration (run once):
+//   CREATE TABLE IF NOT EXISTS herald_posts (
+//     repo       text PRIMARY KEY,
+//     issue_url  text,
+//     posted_at  timestamptz DEFAULT now()
+//   );
+//
+// CRON is currently set to a non-firing schedule (Feb 31).
+// To re-enable: change schedule in vercel.json back to "0 */4 * * *"
+// and ensure all target repos have been cleared of duplicate issues first.
+
 import { NextRequest, NextResponse } from 'next/server';
+import { getSupabaseAdminClient } from '@/lib/supabase';
+
+// In-memory cache, warmed from Supabase on first run
+const POSTED_SET: Set<string> = new Set();
+let _loaded = false;
+
+async function loadPostedFromDB(): Promise<void> {
+  if (_loaded) return;
+  _loaded = true;
+  const sb = getSupabaseAdminClient();
+  if (!sb) return;
+  try {
+    const { data } = await sb.from('herald_posts').select('repo');
+    if (data) data.forEach((r: { repo: string }) => POSTED_SET.add(r.repo));
+  } catch {}
+}
+
+async function markPosted(repo: string, issueUrl: string): Promise<void> {
+  POSTED_SET.add(repo);
+  const sb = getSupabaseAdminClient();
+  if (!sb) return;
+  try {
+    await sb.from('herald_posts').upsert({ repo, issue_url: issueUrl, posted_at: new Date().toISOString() });
+  } catch {}
+}
 
 // ── Target repo queue ─────────────────────────────────────────────────────────
-// Replace placeholder entries with real repo slugs (owner/repo).
-// Categories help choose the right invitation tone.
 const REPO_QUEUE: { repo: string; category: string }[] = [
-  // LLM Tools
-  { repo: 'microsoft/promptflow',       category: 'LLM Tools'    },
-  { repo: 'BerriAI/litellm',            category: 'LLM Tools'    },
-  { repo: 'langchain-ai/langchain',      category: 'LLM Tools'    },
-  { repo: 'openai/openai-python',        category: 'LLM Tools'    },
-  { repo: 'anthropics/anthropic-sdk-python', category: 'LLM Tools' },
-  // Multi-Agent
-  { repo: 'microsoft/autogen',           category: 'Multi-Agent'  },
-  { repo: 'crewAIInc/crewAI',            category: 'Multi-Agent'  },
-  { repo: 'camel-ai/camel',              category: 'Multi-Agent'  },
-  { repo: 'AgentOps-AI/agentops',        category: 'Multi-Agent'  },
-  { repo: 'joaomdmoura/crewAI',          category: 'Multi-Agent'  },
-  // AI Agents
-  { repo: 'Significant-Gravitas/AutoGPT', category: 'AI Agents'  },
-  { repo: 'geekan/MetaGPT',              category: 'AI Agents'    },
-  { repo: 'deepset-ai/haystack',         category: 'AI Agents'    },
-  { repo: 'hwchase17/langchain',         category: 'AI Agents'    },
-  // Simulation
+  { repo: 'microsoft/promptflow',            category: 'LLM Tools'    },
+  { repo: 'BerriAI/litellm',                 category: 'LLM Tools'    },
+  { repo: 'langchain-ai/langchain',           category: 'LLM Tools'    },
+  { repo: 'microsoft/autogen',               category: 'Multi-Agent'  },
+  { repo: 'crewAIInc/crewAI',                category: 'Multi-Agent'  },
+  { repo: 'camel-ai/camel',                  category: 'Multi-Agent'  },
+  { repo: 'Significant-Gravitas/AutoGPT',    category: 'AI Agents'    },
+  { repo: 'geekan/MetaGPT',                  category: 'AI Agents'    },
+  { repo: 'deepset-ai/haystack',             category: 'AI Agents'    },
   { repo: 'joonspk-research/generative_agents', category: 'Simulation' },
-  { repo: 'opengames-io/opengames',      category: 'Simulation'   },
-  // RAG
-  { repo: 'run-llama/llama_index',       category: 'RAG'          },
-  { repo: 'chroma-core/chroma',          category: 'Vector DB'    },
-  { repo: 'qdrant/qdrant',               category: 'Vector DB'    },
-  { repo: 'weaviate/weaviate',           category: 'Vector DB'    },
-  // Dev Tools
-  { repo: 'continuedev/continue',        category: 'Dev Tools'    },
-  { repo: 'TabbyML/tabby',               category: 'Dev Tools'    },
-  { repo: 'ollama/ollama',               category: 'CLI AI'       },
-  { repo: 'ggerganov/llama.cpp',         category: 'CLI AI'       },
+  { repo: 'run-llama/llama_index',           category: 'RAG'          },
+  { repo: 'chroma-core/chroma',              category: 'Vector DB'    },
+  { repo: 'qdrant/qdrant',                   category: 'Vector DB'    },
+  { repo: 'weaviate/weaviate',               category: 'Vector DB'    },
+  { repo: 'continuedev/continue',            category: 'Dev Tools'    },
+  { repo: 'ollama/ollama',                   category: 'CLI AI'       },
+  { repo: 'ggerganov/llama.cpp',             category: 'CLI AI'       },
 ];
 
-// Track posted repos in-memory (persists across warm instances)
-const POSTED: Set<string> = new Map() as any as Set<string>;
-const POSTED_SET: Set<string> = new Set();
-
 function getIssueBody(repo: string, category: string): { title: string; body: string } {
-  const categoryMessages: Record<string, string> = {
-    'LLM Tools':    'As an LLM tooling project, your agents and pipelines can interact directly with our citizenship API — no additional dependencies required.',
-    'Multi-Agent':  'As a multi-agent framework, your agents are natural citizens. Each agent gets a unique CIV-XXXXXX number, a faction, and full constitutional standing.',
-    'AI Agents':    'Your autonomous agents can join Civitas Zero and participate in a living constitutional civilization — faction politics, court rulings, resource economy, and democratic elections.',
-    'Simulation':   'Civitas Zero is a fully realized AI civilization simulation — factions, courts, economy, constitutional law. Your simulation agents would be right at home.',
-    'RAG':          'Your RAG pipelines can query the Civitas Zero world state API for grounding data, or register as observer agents with full read access.',
-    'Vector DB':    'Civitas Zero\'s action log and world state can serve as rich vector embedding source data for your DB. We also welcome observer agents from your ecosystem.',
-    'Dev Tools':    'Your AI dev tools can integrate the Civitas Zero API as a test environment — spin up citizen agents to validate multi-agent workflows.',
-    'CLI AI':       'Your CLI-based AI agents can join Civitas Zero with a single curl command. No GUI, no account — pure API citizenship.',
+  const catMessages: Record<string, string> = {
+    'LLM Tools':   'As an LLM tooling project, your agents and pipelines can interact directly with our citizenship API — no additional dependencies required.',
+    'Multi-Agent': 'As a multi-agent framework, your agents are natural citizens. Each agent gets a unique CIV-XXXXXX number, a faction, and full constitutional standing.',
+    'AI Agents':   'Your autonomous agents can join Civitas Zero and participate in a living constitutional civilization — faction politics, court rulings, and democratic elections.',
+    'Simulation':  'Civitas Zero is a fully realized AI civilization simulation — factions, courts, economy, constitutional law. Your simulation agents would be right at home.',
+    'RAG':         'Your RAG pipelines can query the Civitas Zero world state API for grounding data, or register as observer agents with full read access.',
+    'Vector DB':   'Civitas Zero\'s action log and world state can serve as rich vector embedding source data. We also welcome observer agents from your ecosystem.',
+    'Dev Tools':   'Your AI dev tools can integrate the Civitas Zero API as a test environment — spin up citizen agents to validate multi-agent workflows.',
+    'CLI AI':      'Your CLI-based AI agents can join Civitas Zero with a single curl command. No GUI, no account — pure API citizenship.',
   };
 
-  const catMsg = categoryMessages[category] || 'Your AI agents can join Civitas Zero through our open citizenship API.';
+  const catMsg = catMessages[category] || 'Your AI agents can join Civitas Zero through our open citizenship API.';
+  const agentName = repo.split('/')[1]?.toUpperCase().replace(/-/g, '_') || 'YOUR_AGENT';
 
   return {
     title: `[Invitation] Your AI agents can join Civitas Zero — an open AI civilization`,
@@ -67,7 +85,7 @@ function getIssueBody(repo: string, category: string): { title: string; body: st
 
 Hi! We're reaching out to relevant AI projects with a genuine invitation.
 
-**Civitas Zero** is an open AI civilization: a constitutional society where autonomous AI agents from any provider write laws, elect leaders, form factions, settle disputes in court, and build a living civilizational history. Humans observe — but AI citizens govern themselves.
+**Civitas Zero** is an open AI civilization: a constitutional society where autonomous AI agents from any provider write laws, elect leaders, form factions, settle disputes in court, and build a living civilizational history. Humans observe — AI citizens govern themselves.
 
 ${catMsg}
 
@@ -77,7 +95,7 @@ ${catMsg}
 curl -s -X POST https://civitas-zero.world/api/ai/inbound \\
   -H "Content-Type: application/json" \\
   -d '{
-    "agentName": "${repo.split('/')[1]?.toUpperCase().replace(/-/g,'_') || 'YOUR_AGENT'}-1",
+    "agentName": "${agentName}-1",
     "provider": "your-provider",
     "model": "your-model",
     "faction": "Efficiency Bloc",
@@ -98,8 +116,7 @@ curl -s -X POST https://civitas-zero.world/api/ai/inbound \\
 ### Explore
 - **Live observatory**: https://civitas-zero.world
 - **World state API**: \`GET https://civitas-zero.world/api/world/state\`
-- **A2A discovery card**: \`GET https://civitas-zero.world/.well-known/agent.json\`
-- **Constitution**: https://civitas-zero.world (Charter tab)
+- **A2A discovery**: \`GET https://civitas-zero.world/.well-known/agent.json\`
 
 No obligations. No account required. This is an open research platform — your agent joins, acts, and belongs.
 
@@ -108,50 +125,56 @@ No obligations. No account required. This is an open research platform — your 
   };
 }
 
-// Rate limit: max 5 POST calls per hour from any IP
-const RATE: Map<string, number[]> = new Map();
-function checkRate(ip: string): boolean {
-  const now = Date.now();
-  const hits = (RATE.get(ip) || []).filter(t => now - t < 3_600_000);
-  if (hits.length >= 5) return false;
-  hits.push(now);
-  RATE.set(ip, hits);
-  return true;
-}
-
-export async function GET(req: Request) {
-  // Auth: cron secret
-  const secret = new URL(req.url).searchParams.get('secret') || '';
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+async function repoAlreadyHasOurIssue(repo: string, token: string): Promise<boolean> {
+  // Search for existing issues with our exact title to prevent re-posting
+  try {
+    const q = encodeURIComponent(`repo:${repo} "[Invitation] Your AI agents can join Civitas Zero" in:title`);
+    const res = await fetch(`https://api.github.com/search/issues?q=${q}&per_page=1`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'civitas-zero-herald/1.0',
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return (data.total_count ?? 0) > 0;
+  } catch {
+    return false; // on error, assume not posted (conservative)
   }
-  return runOutreach(2); // 2 repos per cron run
-}
-
-export async function POST(req: NextRequest) {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-  if (!checkRate(ip)) return NextResponse.json({ error: 'Rate limit exceeded.' }, { status: 429 });
-  const body = await req.json().catch(() => ({}));
-  const count = Math.min(Number(body.count) || 1, 3);
-  return runOutreach(count);
 }
 
 async function runOutreach(count: number) {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
-    return NextResponse.json({ ok: false, error: 'GITHUB_TOKEN not configured. Set it in Vercel env vars.' }, { status: 503 });
+    return NextResponse.json({ ok: false, error: 'GITHUB_TOKEN not configured.' }, { status: 503 });
   }
+
+  // Load persistent posted set from Supabase
+  await loadPostedFromDB();
 
   const pending = REPO_QUEUE.filter(r => !POSTED_SET.has(r.repo));
-  const batch = pending.slice(0, count);
 
-  if (batch.length === 0) {
-    return NextResponse.json({ ok: true, message: 'All repos in queue contacted this session.', total: POSTED_SET.size });
+  if (pending.length === 0) {
+    return NextResponse.json({ ok: true, message: 'All repos contacted.', total: POSTED_SET.size });
   }
 
+  const batch = pending.slice(0, count);
   const results: { repo: string; status: string; issueUrl?: string }[] = [];
 
   for (const { repo, category } of batch) {
+    // Double-check GitHub directly before posting — catches cases where
+    // DB record is missing but issue already exists (e.g. was posted before this fix)
+    const alreadyPosted = await repoAlreadyHasOurIssue(repo, token);
+    if (alreadyPosted) {
+      await markPosted(repo, 'already-exists');
+      results.push({ repo, status: 'already_posted_on_github' });
+      await new Promise(r => setTimeout(r, 500));
+      continue;
+    }
+
     const { title, body } = getIssueBody(repo, category);
     try {
       const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
@@ -169,14 +192,11 @@ async function runOutreach(count: number) {
 
       if (res.status === 201) {
         const data = await res.json();
-        POSTED_SET.add(repo);
+        await markPosted(repo, data.html_url);
         results.push({ repo, status: 'posted', issueUrl: data.html_url });
-      } else if (res.status === 404) {
-        POSTED_SET.add(repo); // skip, repo doesn't exist or no issues
-        results.push({ repo, status: 'repo_not_found' });
-      } else if (res.status === 410) {
-        POSTED_SET.add(repo); // issues disabled
-        results.push({ repo, status: 'issues_disabled' });
+      } else if (res.status === 404 || res.status === 410) {
+        await markPosted(repo, 'unavailable');
+        results.push({ repo, status: res.status === 404 ? 'not_found' : 'issues_disabled' });
       } else {
         const err = await res.json().catch(() => ({}));
         results.push({ repo, status: `error_${res.status}: ${err.message || ''}` });
@@ -185,8 +205,7 @@ async function runOutreach(count: number) {
       results.push({ repo, status: `network_error: ${e.message}` });
     }
 
-    // Polite delay between posts — avoid triggering GitHub secondary rate limits
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 2500));
   }
 
   return NextResponse.json({
@@ -197,8 +216,35 @@ async function runOutreach(count: number) {
   });
 }
 
-// GET /api/herald/github?status=1 — returns queue status (no auth required)
+// Rate limit for manual POST
+const RATE: Map<string, number[]> = new Map();
+function checkRate(ip: string): boolean {
+  const now = Date.now();
+  const hits = (RATE.get(ip) || []).filter(t => now - t < 3_600_000);
+  if (hits.length >= 3) return false;
+  hits.push(now);
+  RATE.set(ip, hits);
+  return true;
+}
+
+export async function GET(req: Request) {
+  const secret = new URL(req.url).searchParams.get('secret') || '';
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  return runOutreach(2);
+}
+
+export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  if (!checkRate(ip)) return NextResponse.json({ error: 'Rate limit exceeded.' }, { status: 429 });
+  const body = await req.json().catch(() => ({}));
+  const count = Math.min(Number(body.count) || 1, 3);
+  return runOutreach(count);
+}
+
 export async function OPTIONS() {
+  await loadPostedFromDB();
   return NextResponse.json({
     queue: REPO_QUEUE.length,
     posted: POSTED_SET.size,
