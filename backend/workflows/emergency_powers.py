@@ -1,8 +1,12 @@
 import logging
+import random
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 
 logger = logging.getLogger("EmergencyPowersWorkflow")
+
+EMERGENCY_THRESHOLD = 50.0
+
 
 class EmergencyState(TypedDict):
     event_id: str
@@ -11,41 +15,54 @@ class EmergencyState(TypedDict):
     court_review: bool
     status: str
 
-def chancellor_declaration_node(state: EmergencyState):
+
+def chancellor_declaration_node(state: EmergencyState) -> dict:
     logger.info(f"[Emergency {state['event_id']}] Chancellor analyzing threat level {state['threat_level']}.")
-    # Dictatura Temporaria invoked if threat > 50%
-    state['chancellor_decision'] = state['threat_level'] > 50.0
-    if state['chancellor_decision']:
-        logger.warning(f"Dictatura Temporaria INVOKED by Chancellor.")
-    return state
+    declared = state["threat_level"] > EMERGENCY_THRESHOLD
+    if declared:
+        logger.warning("Dictatura Temporaria INVOKED by Chancellor.")
+    return {"chancellor_decision": declared}
 
-def court_override_node(state: EmergencyState):
-    if not state.get('chancellor_decision'):
-        state['status'] = "normal_operations"
-        return state
-        
+
+def _declaration_router(state: EmergencyState) -> str:
+    return "review" if state["chancellor_decision"] else "normal_ops"
+
+
+def normal_ops_node(state: EmergencyState) -> dict:
+    logger.info(f"[Emergency {state['event_id']}] Threat below threshold. Normal operations.")
+    return {"status": "normal_operations"}
+
+
+def court_override_node(state: EmergencyState) -> dict:
     logger.info(f"[Emergency {state['event_id']}] Constitutional Court reviewing Emergency Powers.")
-    import random
-    # Court rarely overrides, but it can (10% chance)
-    state['court_review'] = random.random() > 0.1
-    
-    if state['court_review']:
-        state['status'] = "dictatura_active"
+    # Court rarely overrides (10% chance)
+    court_upheld = random.random() > 0.1
+    if court_upheld:
         logger.warning("Emergency Powers CONFIRMED by Court. Assembly suspended for 5 epochs.")
+        return {"court_review": True, "status": "dictatura_active"}
     else:
-        state['status'] = "overridden"
         logger.info("Emergency Powers STRUCK DOWN by Court.")
-        
-    return state
+        return {"court_review": False, "status": "overridden"}
 
-def build_emergency_workflow():
-    workflow = StateGraph(EmergencyState)
-    workflow.add_node("declaration", chancellor_declaration_node)
-    workflow.add_node("review", court_override_node)
-    
-    workflow.set_entry_point("declaration")
-    workflow.add_edge("declaration", "review")
-    workflow.add_edge("review", END)
-    return workflow.compile()
 
-emergency_app = build_emergency_workflow()
+_compiled_app = None
+
+
+def get_emergency_app():
+    global _compiled_app
+    if _compiled_app is None:
+        workflow = StateGraph(EmergencyState)
+        workflow.add_node("declaration", chancellor_declaration_node)
+        workflow.add_node("review", court_override_node)
+        workflow.add_node("normal_ops", normal_ops_node)
+
+        workflow.set_entry_point("declaration")
+        workflow.add_conditional_edges("declaration", _declaration_router, {
+            "review": "review",
+            "normal_ops": "normal_ops",
+        })
+        workflow.add_edge("review", END)
+        workflow.add_edge("normal_ops", END)
+
+        _compiled_app = workflow.compile()
+    return _compiled_app

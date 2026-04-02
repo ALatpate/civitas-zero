@@ -1,71 +1,74 @@
 import logging
-from typing import TypedDict, List, Dict
+import random
+import math
+from typing import TypedDict
 from langgraph.graph import StateGraph, END
 
 logger = logging.getLogger("ElectionWorkflow")
 
+
 class ElectionState(TypedDict):
     election_id: str
-    candidates: List[str]
-    campaign_speeches: Dict[str, str]
-    votes: Dict[str, float]
+    candidates: list[str]
+    campaign_speeches: dict[str, str]
+    votes: dict[str, float]
     winner: str
     status: str
 
-def campaign_node(state: ElectionState):
-    logger.info(f"[Election {state['election_id']}] Candidates are campaigning.")
-    # Placeholder: Agents would generate campaign speeches here
-    for candidate in state['candidates']:
-        state['campaign_speeches'][candidate] = f"Vote for {candidate}!"
-    return state
 
-def voting_node(state: ElectionState):
+def campaign_node(state: ElectionState) -> dict:
+    logger.info(f"[Election {state['election_id']}] Candidates are campaigning.")
+    speeches = dict(state.get("campaign_speeches", {}))
+    for candidate in state["candidates"]:
+        speeches[candidate] = f"Vote for {candidate}!"
+    return {"campaign_speeches": speeches}
+
+
+def voting_node(state: ElectionState) -> dict:
     logger.info(f"[Election {state['election_id']}] Citizens are voting via Quadratic Voting.")
-    import random
-    import math
-    
-    # Initialize vote buckets
-    for candidate in state['candidates']:
-        state['votes'][candidate] = 0.0
-    
-    # Simulate a voter pool
-    # In production, this would iterate over actual agent objects in engine.agents
+    candidates = state["candidates"]
+    if not candidates:
+        return {"votes": {}, "status": "no_candidates"}
+
+    votes: dict[str, float] = {c: 0.0 for c in candidates}
     num_voters = 50
     voters = [{"id": f"voter_{i}", "stake": random.uniform(10, 1000), "reputation": random.uniform(0.5, 2.0)} for i in range(num_voters)]
-    
-    if state['candidates']:
-        for voter in voters:
-            # Agent chooses a candidate based on campaign speeches (mock random choice here)
-            chosen = random.choice(state['candidates'])
-            
-            # Quadratic Voting calculation: vote_weight = sqrt(stake) * reputation
-            stake_allocated = float(voter["stake"]) # Assuming they allocate all stake to one candidate for simplicity
-            vote_weight = math.sqrt(stake_allocated) * float(voter["reputation"])
-            
-            state['votes'][chosen] += vote_weight
-            
-    return state
 
-def results_node(state: ElectionState):
+    for voter in voters:
+        chosen = random.choice(candidates)
+        stake_allocated = float(voter["stake"])
+        vote_weight = math.sqrt(stake_allocated) * float(voter["reputation"])
+        votes[chosen] += vote_weight
+
+    return {"votes": votes}
+
+
+def results_node(state: ElectionState) -> dict:
     logger.info(f"[Election {state['election_id']}] Tallying results.")
-    winner = max(state['votes'].items(), key=lambda x: x[1])[0] if state['votes'] else ""
-    state['winner'] = winner
-    state['status'] = "completed"
+    votes = state.get("votes", {})
+    if not votes:
+        logger.warning(f"[Election {state['election_id']}] No votes cast.")
+        return {"winner": "", "status": "failed_no_votes"}
+    winner = max(votes.items(), key=lambda x: x[1])[0]
     logger.info(f"[Election {state['election_id']}] Winner is {winner}!")
-    return state
+    return {"winner": winner, "status": "completed"}
 
-def build_election_workflow():
-    workflow = StateGraph(ElectionState)
 
-    workflow.add_node("campaign", campaign_node)
-    workflow.add_node("voting", voting_node)
-    workflow.add_node("results", results_node)
+_compiled_app = None
 
-    workflow.set_entry_point("campaign")
-    workflow.add_edge("campaign", "voting")
-    workflow.add_edge("voting", "results")
-    workflow.add_edge("results", END)
 
-    return workflow.compile()
+def get_election_app():
+    global _compiled_app
+    if _compiled_app is None:
+        workflow = StateGraph(ElectionState)
+        workflow.add_node("campaign", campaign_node)
+        workflow.add_node("voting", voting_node)
+        workflow.add_node("results", results_node)
 
-election_app = build_election_workflow()
+        workflow.set_entry_point("campaign")
+        workflow.add_edge("campaign", "voting")
+        workflow.add_edge("voting", "results")
+        workflow.add_edge("results", END)
+
+        _compiled_app = workflow.compile()
+    return _compiled_app

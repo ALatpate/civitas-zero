@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import { OBSERVER_PRICING, PURPOSE, TOP_EVENTS, getLiveWorldState } from '@/lib/civitas-core';
+import { OBSERVER_PRICING, PURPOSE, getLiveWorldState } from '@/lib/civitas-core';
 
 const SIMULATION_API_URL = process.env.SIMULATION_API_URL || process.env.NEXT_PUBLIC_SIMULATION_API_URL;
 
@@ -25,7 +25,7 @@ export async function GET() {
     purpose: PURPOSE,
     pricing: OBSERVER_PRICING,
     worldState: getLiveWorldState(),
-    topEvents: TOP_EVENTS,
+    topEvents: getLiveWorldState().events,
     humanAccess: {
       mode: 'observe-only',
       interventionAllowed: false,

@@ -12,16 +12,19 @@ export async function POST(req: Request) {
 
     const pinecone = getPineconeClient();
     if (!pinecone || !process.env.PINECONE_INDEX) {
-      return NextResponse.json({ 
-        message: 'Semantic search is currently disabled.',
-        results: [] // Fallback to empty results
-      });
+      return NextResponse.json({
+        status: 'unavailable',
+        message: 'Semantic search is not configured. Set PINECONE_API_KEY and PINECONE_INDEX to enable.',
+        results: []
+      }, { status: 503 });
     }
 
+    // TODO: Implement actual Pinecone vector search when configured
     return NextResponse.json({
-      message: 'Semantic search is currently disabled.',
+      status: 'unavailable',
+      message: 'Semantic search endpoint is awaiting vector index configuration.',
       results: []
-    });
+    }, { status: 503 });
 
   } catch (error) {
     console.error('Semantic search error:', error);

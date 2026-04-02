@@ -1,5 +1,6 @@
+import json
 import logging
-from typing import List
+from typing import Any
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -12,25 +13,26 @@ except ImportError:
         def get_starlette_app(self):
             from fastapi import FastAPI
             return FastAPI()
-            
+
 from knowledge_graph import archive
 
 logger = logging.getLogger("MCP-MemoryService")
 
 mcp = FastMCP("CivitasZero-Archive")
 
+
 @mcp.resource("archive://precedents/{query}")
 def get_precedents(query: str) -> str:
     """
     Read the civilizational archive for precedents.
-    This exposes the cryptographic ledger as a standard MCP resource
-    that any MCP-compatible agent can read across the network.
+    Returns JSON-formatted results compatible with MCP resource consumers.
     """
     results = archive.query_precedents(query)
-    return str(results)
+    return json.dumps(results, default=str)
+
 
 @mcp.tool()
-def append_memory(event_name: str, description: str, participants: List[str]) -> str:
+def append_memory(event_name: str, description: str, participants: list[str]) -> str:
     """
     Write to the shared civilizational memory.
     Enforces Article 36 cryptographic hashing natively via the MCP protocol.

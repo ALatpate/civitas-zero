@@ -6,7 +6,11 @@ import { sendEmail } from '@/lib/resend';
 
 export async function POST(req: Request) {
   const body = await req.text();
-  const signature = req.headers.get('Stripe-Signature') as string;
+  const signature = req.headers.get('Stripe-Signature');
+
+  if (!signature) {
+    return new NextResponse('Missing Stripe-Signature header.', { status: 400 });
+  }
 
   let event;
   try {
@@ -15,7 +19,8 @@ export async function POST(req: Request) {
       signature,
       process.env.STRIPE_WEBHOOK_SECRET!
     );
-  } catch {
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err);
     return new NextResponse('Invalid webhook signature.', { status: 400 });
   }
 
@@ -25,23 +30,35 @@ export async function POST(req: Request) {
     return new NextResponse('Internal error', { status: 500 });
   }
 
-  const session = event.data.object as any;
-
   if (event.type === 'checkout.session.completed') {
-    const subscription = await stripe.subscriptions.retrieve(session.subscription as string) as any;
-    const clerk_user_id = session.metadata?.clerk_user_id;
-    const customer = await stripe.customers.retrieve(session.customer as string) as any;
+    const session = event.data.object;
+    const subscriptionId = (session as any).subscription;
+    const customerId = (session as any).customer;
+    const clerk_user_id = (session as any).metadata?.clerk_user_id;
+
+    if (!subscriptionId || !customerId) {
+      console.error('Missing subscription or customer ID in checkout session');
+      return new NextResponse(null, { status: 200 });
+    }
+
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId as string) as any;
+    const customer = await stripe.customers.retrieve(customerId as string) as any;
 
     if (clerk_user_id) {
-      await supabase.from('observers').upsert({
+      const { error: upsertError } = await supabase.from('observers').upsert({
         clerk_user_id,
-        stripe_customer_id: session.customer as string,
+        stripe_customer_id: customerId as string,
         stripe_subscription_id: subscription.id,
         subscription_status: subscription.status,
         trial_ends_at: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
         current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'clerk_user_id' });
+
+      if (upsertError) {
+        console.error('Failed to upsert observer:', upsertError);
+        return new NextResponse('Database error', { status: 500 });
+      }
 
       if (customer?.email) {
         await sendEmail({
@@ -55,8 +72,8 @@ export async function POST(req: Request) {
 
   if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
     const subscription = event.data.object as any;
-    
-    await supabase.from('observers')
+
+    const { error: updateError } = await supabase.from('observers')
       .update({
         subscription_status: subscription.status,
         trial_ends_at: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
@@ -64,6 +81,11 @@ export async function POST(req: Request) {
         updated_at: new Date().toISOString(),
       })
       .eq('stripe_subscription_id', subscription.id);
+
+    if (updateError) {
+      console.error('Failed to update observer subscription:', updateError);
+      return new NextResponse('Database error', { status: 500 });
+    }
   }
 
   return new NextResponse(null, { status: 200 });

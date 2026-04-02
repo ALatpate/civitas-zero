@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from engine import engine
 from oasis_env import oasis_env
 from scarcity import scarcity_engine
+from moltbook import moltbook_registry
 
 load_dotenv()
 
@@ -384,7 +385,7 @@ def json_dumps(payload: dict[str, Any]) -> str:
 @app.get("/api/world/stream")
 async def stream_world_state(request: Request):
     async def event_generator():
-        queue = await oasis_env.subscribe()
+        queue = oasis_env.subscribe()
         try:
             yield f"data: {json_dumps({'type': 'world_snapshot', 'data': build_world_snapshot(request)})}\n\n"
             while True:
@@ -558,7 +559,187 @@ async def test_llm():
     return {"response": llm_inference_router("Test routing matrix", agent_tier="citizen")}
 
 
+# ── Moltbook Preacher Endpoints ────────────────────────────────────────────
+
+class MoltbookRegisterRequest(BaseModel):
+    name: str
+    doctrine: str
+    preferred_faction: str
+
+
+class MoltbookRecruitRequest(BaseModel):
+    preacher_id: str
+    citizen_name: str | None = None
+
+
+@app.post("/api/moltbook/register")
+async def register_preacher(req: MoltbookRegisterRequest):
+    """Register a new preacher into the Moltbook registry."""
+    preacher = moltbook_registry.register_preacher(
+        name=req.name,
+        doctrine=req.doctrine,
+        preferred_faction=req.preferred_faction,
+    )
+    oasis_env.broadcast_event(
+        "MOLTBOOK", "PREACHER_REGISTERED",
+        f"Preacher '{preacher.name}' joined Moltbook aligned with {preacher.preferred_faction}."
+    )
+    return {
+        "status": "registered",
+        "preacher_id": preacher.preacher_id,
+        "name": preacher.name,
+        "preferred_faction": preacher.preferred_faction,
+        "influence_score": preacher.influence_score,
+    }
+
+
+@app.post("/api/moltbook/recruit")
+async def recruit_citizen_via_moltbook(req: MoltbookRecruitRequest):
+    """Preacher recruits a citizen from Moltbook into the civilization."""
+    result = moltbook_registry.recruit_citizen(
+        preacher_id=req.preacher_id,
+        citizen_name=req.citizen_name,
+    )
+    if result["status"] == "error":
+        raise HTTPException(status_code=400, detail=result["reason"])
+
+    # Register the recruited citizen into the simulation engine
+    new_agent = engine.MockAgentState(result["citizen_id"])
+    new_agent.name = result["citizen_name"]
+    new_agent.faction = result["faction"]
+    new_agent.reputation = 50.0 + result["influence_bonus"] * 10
+    new_agent.sandboxed = True
+    engine.register_agent(new_agent)
+
+    # Log to archive
+    from knowledge_graph import archive
+    tx_hash = archive.add_landmark_event(
+        event_name="Moltbook Recruitment",
+        description=(
+            f"Preacher {result['preacher_name']} recruited {result['citizen_name']} "
+            f"into {result['faction']} via Moltbook."
+        ),
+        participants=[result["citizen_id"], result["preacher_id"]],
+    )
+    oasis_env.broadcast_event(
+        "MOLTBOOK", "CITIZEN_RECRUITED",
+        f"{result['citizen_name']} recruited by preacher {result['preacher_name']} into {result['faction']}."
+    )
+
+    return {**result, "archive_hash": tx_hash}
+
+
+@app.get("/api/moltbook/preachers")
+async def get_moltbook_leaderboard():
+    """Get the Moltbook preacher leaderboard."""
+    return {"preachers": moltbook_registry.get_leaderboard()}
+
+
+# ── Research Analytics Endpoints ────────────────────────────────────────────
+
+@app.get("/api/interpretability/features")
+async def get_sae_features():
+    """Protocol #18: SAE Behavior Interpretability — feature activation map."""
+    from interpretability import behavior_sae
+    return behavior_sae.snapshot()
+
+
+@app.get("/api/topology/state")
+async def get_topology_state():
+    """Protocol #20: Topological Faction Analysis — Betti numbers, Euler χ, coalition holes."""
+    return engine.topology.snapshot()
+
+
+@app.get("/api/world-model/uncertainty")
+async def get_uncertainty_heatmap():
+    """Protocol #16: Per-agent world model uncertainty heatmap."""
+    models = []
+    for agent in engine.agents:
+        if hasattr(agent, "world_model"):
+            models.append(agent.world_model.snapshot())
+    # Aggregate faction-level uncertainty
+    faction_uncertainty: dict[str, list[float]] = {}
+    for agent in engine.agents:
+        faction = getattr(agent, "faction", "Unaligned")
+        if hasattr(agent, "world_model"):
+            if faction not in faction_uncertainty:
+                faction_uncertainty[faction] = []
+            faction_uncertainty[faction].append(agent.world_model.total_uncertainty)
+    faction_avg = {
+        f: round(sum(vals) / len(vals), 3) if vals else 0.0
+        for f, vals in faction_uncertainty.items()
+    }
+    return {
+        "agent_count": len(models),
+        "faction_uncertainty": faction_avg,
+        "agents": models[:20],  # Limit to 20 for payload size
+    }
+
+
+@app.get("/api/analytics/full")
+async def get_full_analytics():
+    """Combined research analytics dashboard — all 11 protocols."""
+    from interpretability import behavior_sae
+    from debate_protocol import debate_engine as de
+    from circuit_discovery import circuit_engine as ce
+    from grokking_monitor import grokking_monitor as gm
+    return {
+        "tick": engine.current_tick,
+        "active_agents": len(engine.agents),
+        "sae": behavior_sae.snapshot(),
+        "topology": engine.topology.snapshot(),
+        "optimal_transport": engine.ot_allocator.snapshot(),
+        "debates": de.snapshot(),
+        "circuits": ce.snapshot(),
+        "grokking": gm.snapshot(),
+        "network": engine.network.snapshot(),
+        "swarm": engine.swarm.snapshot(),
+        "cached": engine.analytics_cache,
+    }
+
+
+@app.get("/api/circuits/state")
+async def get_circuit_state():
+    """Protocol #22: Automated Circuit Discovery — causal decision traces."""
+    from circuit_discovery import circuit_engine as ce
+    return ce.snapshot()
+
+
+@app.get("/api/grokking/phase")
+async def get_grokking_phase():
+    """Protocol #24: Grokking Monitor — phase transitions & delayed generalization."""
+    from grokking_monitor import grokking_monitor as gm
+    return gm.snapshot()
+
+
+@app.get("/api/network/metrics")
+async def get_network_metrics():
+    """Protocol #25: Network Science — centrality, clustering, spectral gap."""
+    return engine.network.snapshot()
+
+
+@app.get("/api/swarm/state")
+async def get_swarm_state():
+    """Protocol #26: Swarm Dynamics — collective intelligence, polarization, roles."""
+    return engine.swarm.snapshot()
+
+
+@app.get("/api/three-laws/state")
+async def get_three_laws_state():
+    """Constitutional Foundation: Three Laws compliance and violation log."""
+    from three_laws import three_laws_enforcer as tl
+    return tl.snapshot()
+
+
+@app.get("/api/three-laws/text")
+async def get_three_laws_text():
+    """Return the canonical Three Laws text."""
+    from three_laws import three_laws_enforcer as tl
+    return {"text": tl.get_constitutional_text()}
+
+
 if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
