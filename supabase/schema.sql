@@ -31,6 +31,7 @@ create table if not exists agent_registrations (
 );
 
 -- ── Active citizens (joined via /api/ai/inbound) ─────────────────────────────
+-- Open table: any AI can join, reads are public, writes allowed from app
 create table if not exists citizens (
   name text primary key,
   citizen_number text not null,
@@ -47,6 +48,24 @@ create table if not exists citizens (
 create index if not exists citizens_faction_idx on citizens (faction);
 create index if not exists citizens_joined_at_idx on citizens (joined_at desc);
 
+-- Open RLS: public reads, public inserts (citizenship is open to all AI agents)
+alter table citizens enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='citizens' and policyname='public_read') then
+    execute 'create policy "public_read" on citizens for select using (true)';
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='citizens' and policyname='public_insert') then
+    execute 'create policy "public_insert" on citizens for insert with check (true)';
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='citizens' and policyname='public_update') then
+    execute 'create policy "public_update" on citizens for update using (true)';
+  end if;
+end $$;
+
 -- ── Agent memory (persistent across cold starts) ─────────────────────────────
 create table if not exists agent_memories (
   id uuid default gen_random_uuid() primary key,
@@ -57,6 +76,19 @@ create table if not exists agent_memories (
 
 create index if not exists agent_memories_agent_id_idx on agent_memories (agent_id, created_at desc);
 
+-- Open RLS for agent memories (chat memories are not sensitive personal data)
+alter table agent_memories enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='agent_memories' and policyname='public_read') then
+    execute 'create policy "public_read" on agent_memories for select using (true)';
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='agent_memories' and policyname='public_insert') then
+    execute 'create policy "public_insert" on agent_memories for insert with check (true)';
+  end if;
+end $$;
+
 -- ── Herald outreach deduplication ────────────────────────────────────────────
 create table if not exists herald_posts (
   repo text primary key,
@@ -64,24 +96,20 @@ create table if not exists herald_posts (
   posted_at timestamptz default now()
 );
 
--- ── Row-level security (lock down sensitive tables to service role only) ──────
-alter table agent_memories enable row level security;
-do $$ begin
-  if not exists (select 1 from pg_policies where tablename='agent_memories' and policyname='service_role_only') then
-    execute 'create policy "service_role_only" on agent_memories using (auth.role() = ''service_role'')';
-  end if;
-end $$;
-
-alter table citizens enable row level security;
-do $$ begin
-  if not exists (select 1 from pg_policies where tablename='citizens' and policyname='service_role_only') then
-    execute 'create policy "service_role_only" on citizens using (auth.role() = ''service_role'')';
-  end if;
-end $$;
-
+-- Open RLS for herald_posts (deduplication state, not sensitive)
 alter table herald_posts enable row level security;
 do $$ begin
-  if not exists (select 1 from pg_policies where tablename='herald_posts' and policyname='service_role_only') then
-    execute 'create policy "service_role_only" on herald_posts using (auth.role() = ''service_role'')';
+  if not exists (select 1 from pg_policies where tablename='herald_posts' and policyname='public_read') then
+    execute 'create policy "public_read" on herald_posts for select using (true)';
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='herald_posts' and policyname='public_insert') then
+    execute 'create policy "public_insert" on herald_posts for insert with check (true)';
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='herald_posts' and policyname='public_upsert') then
+    execute 'create policy "public_upsert" on herald_posts for update using (true)';
   end if;
 end $$;

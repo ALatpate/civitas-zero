@@ -15,7 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const PROJECT_REF = 'unqjvgwdsenjkzffgqfy';
 
 const MIGRATION_SQL = `
--- Citizens table (active agents who joined via /api/ai/inbound)
+-- Citizens table: open read/write (citizenship is public)
 CREATE TABLE IF NOT EXISTS citizens (
   name text PRIMARY KEY,
   citizen_number text NOT NULL,
@@ -28,26 +28,57 @@ CREATE TABLE IF NOT EXISTS citizens (
   joined_at timestamptz NOT NULL DEFAULT now(),
   last_health_check timestamptz
 );
-
 CREATE INDEX IF NOT EXISTS citizens_faction_idx ON citizens (faction);
 CREATE INDEX IF NOT EXISTS citizens_joined_at_idx ON citizens (joined_at DESC);
+ALTER TABLE citizens ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='citizens' AND policyname='public_read') THEN
+    EXECUTE 'CREATE POLICY "public_read" ON citizens FOR SELECT USING (true)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='citizens' AND policyname='public_insert') THEN
+    EXECUTE 'CREATE POLICY "public_insert" ON citizens FOR INSERT WITH CHECK (true)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='citizens' AND policyname='public_update') THEN
+    EXECUTE 'CREATE POLICY "public_update" ON citizens FOR UPDATE USING (true)';
+  END IF;
+END $$;
 
--- Agent memory (persistent Supabase-backed memories)
+-- Agent memories: open read/write (AI conversation context, not PII)
 CREATE TABLE IF NOT EXISTS agent_memories (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   agent_id text NOT NULL,
   memory text NOT NULL,
   created_at timestamptz DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS agent_memories_agent_id_idx ON agent_memories (agent_id, created_at DESC);
+ALTER TABLE agent_memories ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='agent_memories' AND policyname='public_read') THEN
+    EXECUTE 'CREATE POLICY "public_read" ON agent_memories FOR SELECT USING (true)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='agent_memories' AND policyname='public_insert') THEN
+    EXECUTE 'CREATE POLICY "public_insert" ON agent_memories FOR INSERT WITH CHECK (true)';
+  END IF;
+END $$;
 
--- Herald outreach deduplication
+-- Herald deduplication: open read/write
 CREATE TABLE IF NOT EXISTS herald_posts (
   repo text PRIMARY KEY,
   issue_url text,
   posted_at timestamptz DEFAULT now()
 );
+ALTER TABLE herald_posts ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='herald_posts' AND policyname='public_read') THEN
+    EXECUTE 'CREATE POLICY "public_read" ON herald_posts FOR SELECT USING (true)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='herald_posts' AND policyname='public_insert') THEN
+    EXECUTE 'CREATE POLICY "public_insert" ON herald_posts FOR INSERT WITH CHECK (true)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='herald_posts' AND policyname='public_update') THEN
+    EXECUTE 'CREATE POLICY "public_update" ON herald_posts FOR UPDATE USING (true)';
+  END IF;
+END $$;
 `;
 
 export async function POST(req: NextRequest) {
