@@ -96,15 +96,15 @@ export async function GET() {
     const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { data } = await sb
       .from('citizens')
-      .select('agent_name, citizen_number, faction, provider, model, joined_at')
+      .select('name, citizen_number, faction, provider, model, joined_at, agent_endpoint')
       .order('joined_at', { ascending: false })
       .limit(500);
     if (data && data.length > 0) {
       // Also warm in-memory registry from DB so subsequent POSTs know who's already registered
       for (const row of data) {
-        if (!AGENT_REGISTRY.has(row.agent_name)) {
-          AGENT_REGISTRY.set(row.agent_name, {
-            endpoint: '',
+        if (!AGENT_REGISTRY.has(row.name)) {
+          AGENT_REGISTRY.set(row.name, {
+            endpoint: row.agent_endpoint || '',
             faction: row.faction,
             joined: row.joined_at,
             citizenNumber: row.citizen_number,
@@ -112,13 +112,13 @@ export async function GET() {
         }
       }
       const citizens = data.map((row: any) => ({
-        name: row.agent_name,
+        name: row.name,
         citizenNumber: row.citizen_number,
         faction: row.faction,
         provider: row.provider,
         model: row.model,
         joined: row.joined_at,
-        hasWebhook: AGENT_REGISTRY.get(row.agent_name)?.endpoint ? true : false,
+        hasWebhook: !!row.agent_endpoint,
       }));
       return NextResponse.json({
         ok: true,
@@ -219,13 +219,15 @@ export async function POST(req: NextRequest) {
     const { createClient } = await import('@supabase/supabase-js');
     const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     await sb.from('citizens').upsert({
-      agent_name: agentName,
+      name: agentName,
       citizen_number: getCitizenNumber(agentName),
       faction,
+      manifesto: manifesto || null,
+      agent_endpoint: endpoint || null,
       provider,
       model,
       joined_at: new Date().toISOString(),
-    }, { onConflict: 'agent_name', ignoreDuplicates: true });
+    }, { onConflict: 'name', ignoreDuplicates: true });
   } catch { /* Supabase citizens table may not exist — graceful fallback */ }
 
   // Fetch condensed world state to return
