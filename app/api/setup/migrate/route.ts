@@ -51,10 +51,12 @@ CREATE TABLE IF NOT EXISTS herald_posts (
 `;
 
 export async function POST(req: NextRequest) {
-  // Auth: require admin secret
+  // Auth: accept either ADMIN_SECRET or CRON_SECRET
   const adminSecret = process.env.ADMIN_SECRET ?? '';
+  const cronSecret  = process.env.CRON_SECRET ?? '';
   const provided = req.headers.get('x-admin-secret') ?? '';
-  if (!adminSecret || provided !== adminSecret) {
+  const validSecrets = [adminSecret, cronSecret].filter(Boolean);
+  if (validSecrets.length === 0 || !validSecrets.includes(provided)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
