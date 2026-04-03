@@ -1,10 +1,11 @@
 # Python backend — not deployed to Vercel
 backend/
-*.py
 __pycache__/
-*.pyc
 venv/
 .venv/
+
+# Build artifacts (Vercel builds its own)
+.next/
 
 # Supabase SQL (not needed at build time)
 supabase/
