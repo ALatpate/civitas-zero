@@ -17,6 +17,7 @@ Integrates all research-grounded protocols:
 #24 Grokking Monitor (Phase Transition Detection)
 #25 Network Science (Centrality, Spectral Gap, Small-World)
 #26 Swarm Dynamics (Collective Intelligence, Boids)
+#WE World Engine — 7-Layer Civilizational Substrate
 """
 
 import asyncio
@@ -36,6 +37,14 @@ from grokking_monitor import grokking_monitor
 from network_science import FactionNetworkAnalyzer
 from swarm_dynamics import SwarmDynamicsEngine
 from three_laws import three_laws_enforcer
+
+# ── World Engine Imports ──────────────────────────────────────────
+from world_engine.truth_engine import truth_engine
+from world_engine.public_reality import public_reality
+from world_engine.relational_engine import relational_engine
+from world_engine.appraisal_engine import AppraisalEngine
+from world_engine.style_genome import style_genome_engine
+from moltbook import moltbook_registry
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("SimulationEngine")
@@ -64,6 +73,16 @@ class SimulationEngine:
         # Protocol #26: Swarm Dynamics
         self.swarm = SwarmDynamicsEngine(FACTION_NAMES)
 
+        # ── World Engine Layers ───────────────────────────────────────────
+        self.truth_engine = truth_engine
+        self.public_reality = public_reality
+        self.relational = relational_engine
+        self.style_genome = style_genome_engine
+        self.moltbook = moltbook_registry
+
+        # Per-agent appraisal engines (created on agent registration)
+        self.appraisal_engines: dict[str, AppraisalEngine] = {}
+
         # Analytics cache
         self.analytics_cache: dict[str, Any] = {}
 
@@ -82,7 +101,12 @@ class SimulationEngine:
             agent_obj = self.MockAgentState(agent_obj)
         self.agents.append(agent_obj)
         oasis_env.register_agent(agent_obj.agent_id)
-        logger.info(f"Registered agent {agent_obj.agent_id}")
+
+        # World Engine: create appraisal engine + style profile
+        faction = getattr(agent_obj, 'faction', 'Unaligned')
+        self.appraisal_engines[agent_obj.agent_id] = AppraisalEngine(agent_obj.agent_id, faction)
+        self.style_genome.create_style(agent_obj.agent_id, faction)
+        logger.info(f"Registered agent {agent_obj.agent_id} (WE: appraisal + style initialized)")
 
     def check_experimental_clause(self):
         """Article 33: The Experimental Clause."""
@@ -344,6 +368,69 @@ class SimulationEngine:
             except Exception as e:
                 logger.error(f"Symphony workflow failed: {e}")
 
+        # ── World Engine: Public Reality + Relational + Style ─────────────
+        # Map simulation events to public reality layer
+        for ev in recent_events:
+            ev_type = str(ev.get("type", "")).lower()
+            ev_content = str(ev.get("content", ""))
+            self.public_reality.process_event(ev_type, magnitude=1.0, description=ev_content)
+        self.public_reality.tick()
+
+        # Relational engine: update from observed interactions
+        for agent, action in tick_actions:
+            a_type = action.get("action_type", "")
+            target = action.get("target", "")
+            if target and a_type:
+                self.relational.process_interaction(
+                    agent.agent_id, target, a_type,
+                    context=action.get("content", "")[:80]
+                )
+        self.relational.decay_tick()
+
+        # Appraisal: process events through each agent's appraisal engine
+        for agent in self.agents:
+            ae = self.appraisal_engines.get(agent.agent_id)
+            if ae:
+                for ev in recent_events[-3:]:
+                    ae.process_event(
+                        str(ev.get("type", "")),
+                        source_agent=str(ev.get("source", "")),
+                        description=str(ev.get("content", "")),
+                    )
+                ae.tick()
+
+        # Style genome: faction pressure + cultural drift
+        for agent in self.agents:
+            faction = getattr(agent, "faction", "")
+            if faction:
+                self.style_genome.apply_faction_pressure(agent.agent_id, faction, rate=0.005)
+            # Crisis shift if public anxiety is high
+            anxiety = self.public_reality.indicators["collective_anxiety"].normalized
+            if anxiety > 0.6:
+                self.style_genome.apply_crisis_shift(agent.agent_id, anxiety)
+        self.style_genome.cultural_drift_tick(self.current_tick)
+
+        # Truth engine: auto-review pending claims
+        self.truth_engine.auto_review_tick()
+
+        # Moltbook: periodic recruitment campaign (every 10 ticks)
+        if self.current_tick > 0 and self.current_tick % 10 == 0:
+            if self.moltbook.preachers:
+                top_preacher = max(self.moltbook.preachers.values(), key=lambda p: p.influence_score)
+                world_summary = (
+                    f"Stability: {self.public_reality.stability_score:.0%} | "
+                    f"Crisis risk: {self.public_reality.crisis_risk:.0%} | "
+                    f"Active agents: {len(self.agents)} | Tick: {self.current_tick}"
+                )
+                try:
+                    asyncio.create_task(
+                        self.moltbook.api_client.post_recruitment(
+                            top_preacher.name, top_preacher.preferred_faction, world_summary
+                        )
+                    )
+                except Exception as e:
+                    logger.debug(f"Moltbook recruitment post skipped: {e}")
+
         # ── THREE LAWS: System Invariant Check ────────────────────────────
         laws_check = three_laws_enforcer.check_system_invariants(self.agents, self.current_tick)
         if not laws_check["healthy"]:
@@ -385,6 +472,28 @@ class SimulationEngine:
             "grokking_phase": grokking_monitor.current_phase,
             "debates": debate_engine.total_debates,
             "paperclip_wealth": round(self.paperclip_corp_wealth, 2),
+            # ── World Engine Analytics ──
+            "world_engine": {
+                "public_reality": {
+                    "stability": round(self.public_reality.stability_score, 3),
+                    "crisis_risk": round(self.public_reality.crisis_risk, 3),
+                    "reality_divergence": round(self.public_reality.reality_divergence, 3),
+                },
+                "relational": {
+                    "total_relations": self.relational.snapshot()["total_relations"],
+                    "avg_trust": round(self.relational.avg_trust, 3),
+                    "avg_resentment": round(self.relational.avg_resentment, 3),
+                },
+                "truth": {
+                    "total_claims": len(self.truth_engine.claims),
+                    "canonical": len(self.truth_engine.canonical_knowledge),
+                },
+                "culture": {
+                    "active_memes": len(self.style_genome.memes),
+                    "style_diversity": self.style_genome._compute_diversity(),
+                },
+                "moltbook": self.moltbook.snapshot(),
+            },
         }
 
         # ── SSE Broadcast ────────────────────────────────────────────────
