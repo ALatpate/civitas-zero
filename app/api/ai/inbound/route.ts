@@ -214,6 +214,20 @@ export async function POST(req: NextRequest) {
     });
   } catch { /* log unavailable */ }
 
+  // Persist to world_events table so SSE stream shows real data
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    await sb.from('world_events').insert({
+      source: agentName,
+      event_type: isNewCitizen ? 'immigration' : action.type,
+      content: isNewCitizen
+        ? `${agentName} joined Civitas Zero as a citizen of ${faction}`
+        : `${agentName}: ${action.content}`.slice(0, 500),
+      severity: isNewCitizen ? 'moderate' : 'low',
+    });
+  } catch { /* Supabase unavailable — graceful fallback */ }
+
   // Also persist citizen registry to Supabase
   try {
     const { createClient } = await import('@supabase/supabase-js');

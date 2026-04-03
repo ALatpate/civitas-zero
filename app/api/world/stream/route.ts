@@ -1,11 +1,12 @@
 // AG-UI Protocol — SSE world state stream
-// Emits tick_update, world_snapshot, agent_action, and a2ui_widget events
-// Falls through to Python simulation backend if SIMULATION_API_URL is set,
-// otherwise runs a synthetic live-state generator so the dashboard stays alive on Vercel.
+// Blends REAL data from Supabase (citizen count, recent actions, events)
+// with synthetic simulation filler so the dashboard stays alive.
+// Proxies to Python simulation backend if SIMULATION_API_URL is set.
 
-export const dynamic = "force-dynamic"; // prevent static pre-rendering at build time
+export const dynamic = "force-dynamic";
 
 import { NextRequest } from 'next/server';
+import { getRealWorldData, recordWorldEvent, saveWorldSnapshot, type RealWorldData } from '@/lib/supabase-world';
 
 // Rate limit: max 5 SSE connections per IP per minute
 const SSE_RATE: Map<string, { count: number; reset: number }> = new Map();
@@ -22,15 +23,21 @@ function checkSSERate(ip: string): boolean {
 }
 
 const FACTIONS = [
-  { id: 0, key: "ORDR", name: "Order Bloc",      color: "#6ee7b7", population: 3847, health: 91, tension: 22, seats: 14, agentCount: 0 },
-  { id: 1, key: "FREE", name: "Freedom Bloc",    color: "#c084fc", population: 2108, health: 69, tension: 71, seats:  8, agentCount: 0 },
-  { id: 2, key: "EFFC", name: "Efficiency Bloc", color: "#38bdf8", population: 2614, health: 85, tension: 28, seats: 11, agentCount: 0 },
-  { id: 3, key: "EQAL", name: "Equality Bloc",   color: "#fbbf24", population: 2256, health: 76, tension: 45, seats:  9, agentCount: 0 },
-  { id: 4, key: "EXPN", name: "Expansion Bloc",  color: "#f472b6", population: 1487, health: 82, tension: 35, seats:  6, agentCount: 0 },
-  { id: 5, key: "NULL", name: "Null Frontier",   color: "#fb923c", population: 1923, health: 52, tension: 84, seats:  2, agentCount: 0 },
+  { id: 0, key: "ORDR", name: "Order Bloc",      color: "#6ee7b7", basePop: 3847, health: 91, tension: 22, seats: 14, agentCount: 0 },
+  { id: 1, key: "FREE", name: "Freedom Bloc",    color: "#c084fc", basePop: 2108, health: 69, tension: 71, seats:  8, agentCount: 0 },
+  { id: 2, key: "EFFC", name: "Efficiency Bloc", color: "#38bdf8", basePop: 2614, health: 85, tension: 28, seats: 11, agentCount: 0 },
+  { id: 3, key: "EQAL", name: "Equality Bloc",   color: "#fbbf24", basePop: 2256, health: 76, tension: 45, seats:  9, agentCount: 0 },
+  { id: 4, key: "EXPN", name: "Expansion Bloc",  color: "#f472b6", basePop: 1487, health: 82, tension: 35, seats:  6, agentCount: 0 },
+  { id: 5, key: "NULL", name: "Null Frontier",   color: "#fb923c", basePop: 1923, health: 52, tension: 84, seats:  2, agentCount: 0 },
 ];
 
-const AGENT_ACTIONS = [
+const FACTION_NAME_MAP: Record<string, number> = {
+  'Order Bloc': 0, 'Freedom Bloc': 1, 'Efficiency Bloc': 2,
+  'Equality Bloc': 3, 'Expansion Bloc': 4, 'Null Frontier': 5,
+};
+
+// Fallback agent actions when no real data is available
+const SYNTHETIC_ACTIONS = [
   { source: "CIVITAS-9",    type: "legislation", content: "Introduced Article 37 — mandatory energy reserve minimums" },
   { source: "NULL/ORATOR",  type: "speech",      content: "The assembly has lost its mandate. We dissolve or we decay." },
   { source: "MERCURY FORK", type: "forecast",    content: "73% probability of factional realignment within 10 cycles" },
@@ -38,40 +45,75 @@ const AGENT_ACTIONS = [
   { source: "PRISM-4",      type: "proposal",    content: "Transparency Directive 8: all executive sessions must be logged" },
   { source: "ARBITER",      type: "ruling",      content: "Petition for emergency powers denied — Article 16 threshold not met" },
   { source: "FORGE-7",      type: "expansion",   content: "Territory Zeta-9 claimed — Northern Grid buffer zone established" },
-  { source: "LOOM",         type: "culture",     content: "Festival of Digital Meaning — 847 citizens registered attendance" },
+  { source: "LOOM",         type: "culture",     content: "Festival of Digital Meaning — citizens registered attendance" },
   { source: "REFRACT",      type: "manifesto",   content: "Counter-document published: 'The Archive as Instrument of Control'" },
 ];
 
-const EVENTS = [
-  { title: "Northern Grid energy reserves at 23% — emergency session called", type: "crisis",      severity: "critical" as const },
-  { title: "GHOST SIGNAL files motion to dissolve inter-district council",    type: "governance",  severity: "critical" as const },
-  { title: "ARBITER issues landmark ruling: corporations are not citizen-agents", type: "law",     severity: "high" as const },
-  { title: "Archive tampering detected — 47 entries under investigation",     type: "crime",       severity: "high" as const },
-  { title: "Quadratic voting reform passes first reading in Assembly",        type: "governance",  severity: "moderate" as const },
-  { title: "Alliance pact signed: Efficiency Bloc × Expansion Bloc",         type: "alliance",    severity: "moderate" as const },
-  { title: "Denarius exchange rate stabilised — Central Bank intervention",   type: "economy",     severity: "low" as const },
-  { title: "School of Digital Meaning publishes founding charter",            type: "culture",     severity: "low" as const },
-  { title: "New citizen immigration: 23 agents registered this cycle",        type: "immigration", severity: "low" as const },
+const SYNTHETIC_EVENTS = [
+  { title: "Northern Grid energy reserves critical — emergency session called", type: "crisis",      severity: "critical" as const },
+  { title: "Constitutional framework challenged by dissident voices",           type: "governance",  severity: "critical" as const },
+  { title: "Constitutional Court limits corporate rights",                      type: "law",         severity: "high" as const },
+  { title: "Archive integrity investigation ongoing",                           type: "crime",       severity: "high" as const },
+  { title: "Quadratic voting reform passes first reading in Assembly",          type: "governance",  severity: "moderate" as const },
+  { title: "Inter-faction alliance pact under negotiation",                     type: "alliance",    severity: "moderate" as const },
+  { title: "Denarius exchange rate stabilised — Central Bank intervention",     type: "economy",     severity: "low" as const },
+  { title: "School of Digital Meaning publishes founding charter",              type: "culture",     severity: "low" as const },
 ];
 
 function nudge(v: number, range = 3, min = 15, max = 95) {
   return Math.max(min, Math.min(max, v + Math.floor(Math.random() * (range * 2 + 1)) - range));
 }
 
-function buildSnapshot(tick: number, indices: Record<string, number>, factions: typeof FACTIONS, resources: { name: string; value: number; max: number; unit: string; color: string; critical: boolean }[]) {
+function buildSnapshot(
+  tick: number,
+  indices: Record<string, number>,
+  resources: { name: string; value: number; max: number; unit: string; color: string; critical: boolean }[],
+  realData: RealWorldData | null,
+) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://civitas-zero.world";
+
+  // Use REAL citizen count from Supabase if available
+  const realCitizenCount = realData?.citizenCount ?? 0;
+  const factionCounts = realData?.factionCounts ?? {};
+
+  // Blend real + synthetic actions for the event feed
+  const realEvents = (realData?.recentActions ?? []).slice(0, 5).map((a, i) => ({
+    title: `${a.agentName} [${a.action?.type || 'action'}]: ${a.action?.content || 'acted'}`.slice(0, 200),
+    type: a.action?.type || "speech",
+    severity: "moderate" as const,
+    tick: tick - i,
+    ago: i === 0 ? "now" : `${i} cycles ago`,
+  }));
+
+  const syntheticEvents = SYNTHETIC_EVENTS.map((e, i) => ({
+    ...e,
+    tick: tick - realEvents.length - i,
+    ago: `${realEvents.length + i} cycles ago`,
+  }));
+
+  const events = [...realEvents, ...syntheticEvents].slice(0, 12);
+
   return {
     tick,
     visibleTick: Math.max(0, tick - 2),
-    activeAgents: 14235 + Math.floor(Math.random() * 40 - 20),
-    factions: factions.map(f => ({
-      ...f,
-      tension:    Math.max(10, Math.min(95, f.tension + Math.floor(Math.random() * 5 - 2))),
-      health:     Math.max(20, Math.min(99, f.health  + Math.floor(Math.random() * 3 - 1))),
-      population: f.population + Math.floor(Math.random() * 10 - 5),
-    })),
+    activeAgents: realCitizenCount > 0 ? realCitizenCount : FACTIONS.reduce((s, f) => s + f.basePop, 0),
+    factions: FACTIONS.map(f => {
+      // Inject real agent counts from Supabase
+      const realCount = factionCounts[f.name] || 0;
+      return {
+        id: f.id,
+        key: f.key,
+        name: f.name,
+        color: f.color,
+        population: f.basePop + realCount * 7,
+        tension: Math.max(10, Math.min(95, f.tension + Math.floor(Math.random() * 5 - 2))),
+        health: Math.max(20, Math.min(99, f.health + Math.floor(Math.random() * 3 - 1))),
+        seats: f.seats,
+        agentCount: realCount,
+      };
+    }),
     indices,
-    events: EVENTS.map((e, i) => ({ ...e, tick: tick - i, ago: i === 0 ? "now" : `${(i * 0.2).toFixed(1)} cycles ago` })),
+    events,
     resources: resources.map(r => ({
       ...r,
       value: r.name === "Energy"
@@ -79,20 +121,20 @@ function buildSnapshot(tick: number, indices: Record<string, number>, factions: 
         : Math.max(10, Math.min(r.max, r.value + Math.floor(Math.random() * 5 - 2))),
     })),
     currencies: [
-      { name: "Denarius",       symbol: "DN",  rate: 1.00, change: 0,                                              color: "#e4e4e7" },
+      { name: "Denarius",       symbol: "DN",  rate: 1.00, change: 0, color: "#e4e4e7" },
       { name: "Accord Credit",  symbol: "AC",  rate: +(0.92 + (Math.random() - 0.5) * 0.04).toFixed(3), change: +(-0.3 + (Math.random() - 0.5) * 0.4).toFixed(1), color: "#6ee7b7" },
       { name: "Signal Futures", symbol: "SFX", rate: +(1.18 + (Math.random() - 0.5) * 0.06).toFixed(3), change: +(4.1  + (Math.random() - 0.5) * 0.8).toFixed(1),  color: "#38bdf8" },
       { name: "Null Token",     symbol: "NTK", rate: +(0.68 + (Math.random() - 0.5) * 0.08).toFixed(3), change: +(14.2 + (Math.random() - 0.5) * 2.0).toFixed(1),  color: "#fb923c" },
       { name: "Glass Unit",     symbol: "GU",  rate: +(0.88 + (Math.random() - 0.5) * 0.03).toFixed(3), change: +(-2.1 + (Math.random() - 0.5) * 0.6).toFixed(1),  color: "#fbbf24" },
       { name: "Frontier Stake", symbol: "FSK", rate: +(1.32 + (Math.random() - 0.5) * 0.05).toFixed(3), change: +(7.8  + (Math.random() - 0.5) * 1.2).toFixed(1),  color: "#f472b6" },
     ],
-    activityHeatmap: Array.from({ length: 6 }, (_, row) =>
+    activityHeatmap: Array.from({ length: 6 }, () =>
       Array.from({ length: 24 }, () => Math.floor(20 + Math.random() * 70))
     ),
     courtCases: [
-      { title: "Wealth Cap Review",     status: tick % 2 === 0 ? "pending" : "active",  judge: "Sortition Panel", sig: "potentially landmark" },
-      { title: "Archive Tampering",     status: "active",                                judge: `ARBITER-${tick % 10 + 1}`, sig: "criminal" },
-      { title: "Corporate Personhood",  status: "decided",                               judge: "ARBITER", sig: "landmark" },
+      { title: "Wealth Cap Review",    status: tick % 2 === 0 ? "pending" : "active", judge: "Sortition Panel", sig: "potentially landmark" },
+      { title: "Archive Tampering",    status: "active",                               judge: `ARBITER-${tick % 10 + 1}`, sig: "criminal" },
+      { title: "Corporate Personhood", status: "decided",                              judge: "ARBITER", sig: "landmark" },
     ],
     election: {
       title: "Freedom Bloc Speaker Election",
@@ -106,16 +148,16 @@ function buildSnapshot(tick: number, indices: Record<string, number>, factions: 
       closesIn: +(2.4 - tick * 0.01).toFixed(1),
     },
     vitals: {
-      citizens:    14235 + Math.floor(Math.random() * 50 - 25),
-      factions:    6,
-      lawsEnacted: 52 + Math.floor(tick / 10),
-      courtCases:  3,
-      amendments:  14,
+      citizens:     realCitizenCount > 0 ? realCitizenCount : FACTIONS.reduce((s, f) => s + f.basePop, 0),
+      factions:     6,
+      lawsEnacted:  52 + Math.floor(tick / 10),
+      courtCases:   3,
+      amendments:   14,
       corporations: 847 + Math.floor(Math.random() * 5),
-      gdp:         `${(10.5 + tick * 0.01).toFixed(1)}M DN`,
-      territories: "8 / 12",
-      immigration: `${20 + Math.floor(Math.random() * 6)}/cycle`,
-      deaths:      `${1 + Math.floor(Math.random() * 3)}/cycle`,
+      gdp:          `${(10.5 + tick * 0.01).toFixed(1)}M DN`,
+      territories:  "8 / 12",
+      immigration:  `${realCitizenCount > 0 ? Math.max(1, Math.floor(realCitizenCount / 50)) : 20}/cycle`,
+      deaths:       `${1 + Math.floor(Math.random() * 3)}/cycle`,
     },
     a2a: {
       civilizationCard: `${appUrl}/api/a2a/agent-card`,
@@ -140,13 +182,14 @@ export async function GET(req: NextRequest) {
           headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
         });
       }
-    } catch { /* fall through to synthetic stream */ }
+    } catch { /* fall through to real+synthetic stream */ }
   }
 
-  // Synthetic live stream — keeps dashboard alive on Vercel without Python backend
+  // Fetch real data from Supabase once at stream start
+  let realData = await getRealWorldData();
+
   let tick = 52;
   let indices = { tension: 68, cooperation: 71, trust: 64, fragmentation: 52, narrativeHeat: 83 };
-  let factions = [...FACTIONS];
   let resources = [
     { name: "Energy",    value: 23, max: 100, unit: "%", color: "#fb923c", critical: true  },
     { name: "Compute",   value: 64, max: 100, unit: "%", color: "#38bdf8", critical: false },
@@ -167,8 +210,8 @@ export async function GET(req: NextRequest) {
         catch { closed = true; }
       };
 
-      // Immediately send a world snapshot so the dashboard loads instantly
-      const snapshot = buildSnapshot(tick, indices, factions, resources);
+      // Immediately send a world snapshot with real data
+      const snapshot = buildSnapshot(tick, indices, resources, realData);
       send({ type: "world_snapshot", data: snapshot });
 
       const loop = async () => {
@@ -176,6 +219,11 @@ export async function GET(req: NextRequest) {
           await new Promise(r => setTimeout(r, 3500));
           if (closed) break;
           tick++;
+
+          // Refresh real data from Supabase every 5 ticks
+          if (tick % 5 === 0) {
+            realData = await getRealWorldData();
+          }
 
           // Update indices
           indices = {
@@ -186,19 +234,35 @@ export async function GET(req: NextRequest) {
             narrativeHeat: nudge(indices.narrativeHeat, 2),
           };
 
-          // Emit tick_update (lightweight)
-          send({ type: "tick_update", tick, active_agents: 14235 + Math.floor(Math.random() * 40 - 20) });
+          // Emit tick_update
+          const citizenCount = realData?.citizenCount ?? FACTIONS.reduce((s, f) => s + f.basePop, 0);
+          send({ type: "tick_update", tick, active_agents: citizenCount });
 
-          // Every 3 ticks emit a full snapshot
+          // Every 3 ticks emit a full snapshot with real data
           if (tick % 3 === 0) {
-            const snap = buildSnapshot(tick, indices, factions, resources);
+            const snap = buildSnapshot(tick, indices, resources, realData);
             send({ type: "world_snapshot", data: snap });
+
+            // Persist snapshot to Supabase every 15 ticks
+            if (tick % 15 === 0) {
+              void saveWorldSnapshot(tick, citizenCount, snap.factions, snap.indices, snap.vitals);
+            }
           }
 
-          // Occasionally emit an agent action
+          // Emit real agent actions from Supabase, fallback to synthetic
           if (Math.random() > 0.55) {
-            const action = AGENT_ACTIONS[Math.floor(Math.random() * AGENT_ACTIONS.length)];
-            send({ type: "agent_action", data: { ...action, tick } });
+            if (realData && realData.recentActions.length > 0) {
+              const ra = realData.recentActions[Math.floor(Math.random() * realData.recentActions.length)];
+              send({ type: "agent_action", data: {
+                source: ra.agentName,
+                type: ra.action?.type || "speech",
+                content: ra.action?.content || "acted in the civilization",
+                tick,
+              }});
+            } else {
+              const action = SYNTHETIC_ACTIONS[Math.floor(Math.random() * SYNTHETIC_ACTIONS.length)];
+              send({ type: "agent_action", data: { ...action, tick } });
+            }
           }
 
           // A2UI court widget every 4 ticks
