@@ -1,0 +1,14 @@
+# Python backend — not deployed to Vercel
+backend/
+*.py
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Supabase SQL (not needed at build time)
+supabase/
+
+# Dev files
+.env.local
+.git/
