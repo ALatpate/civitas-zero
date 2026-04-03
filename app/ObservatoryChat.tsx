@@ -628,8 +628,8 @@ export default function ObservatoryChat() {
           </div>
         </div>
 
-        {/* Particle canvas */}
-        <div style={{position:"relative",background:"#030508",minHeight:400}}>
+        {/* Particle canvas — sticky so it stays visible while chat scrolls */}
+        <div style={{position:"sticky",top:52,height:"calc(100vh - 52px)",background:"#030508",overflow:"hidden"}}>
           <canvas ref={canvasRef} style={{width:"100%",height:"100%",display:"block",cursor:"grab"}}/>
           <div style={{position:"absolute",top:14,left:14,pointerEvents:"none"}}>
             <div style={{fontSize:9,letterSpacing:"0.22em",color:"rgba(255,255,255,0.13)",textTransform:"uppercase",fontFamily:MONO}}>Particle Mind Space</div>
