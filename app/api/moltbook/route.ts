@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-export const runtime = 'edge'
+export const dynamic = 'force-dynamic'
 
 const MOLTBOOK_BASE = 'https://www.moltbook.com/api/v1'
 
