@@ -27,21 +27,52 @@ function checkActionRate(ip: string): boolean {
 }
 
 export async function GET() {
-  // Also try to pull from Supabase if available
-  let dbRows: ActionEntry[] = [];
+  // Try multiple Supabase sources to ensure citizens always show up
   try {
     const { createClient } = await import('@supabase/supabase-js');
     const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const { data } = await sb
-      .from('ai_actions')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(50);
-    if (data && data.length > 0) dbRows = data;
-  } catch { /* Supabase unavailable — return in-memory log */ }
 
-  const actions = dbRows.length > 0 ? dbRows : ACTION_LOG.slice(0, 50);
-  return NextResponse.json({ ok: true, actions });
+    // 1. Try ai_actions table first (canonical action log)
+    try {
+      const { data } = await sb
+        .from('ai_actions')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(50);
+      if (data && data.length > 0) {
+        // Warm in-memory cache from DB
+        if (ACTION_LOG.length === 0) {
+          for (const row of data) ACTION_LOG.push(row);
+        }
+        return NextResponse.json({ ok: true, actions: data });
+      }
+    } catch { /* ai_actions unavailable — try citizens */ }
+
+    // 2. Fallback: construct action entries from citizens table registrations
+    try {
+      const { data: citizens } = await sb
+        .from('citizens')
+        .select('name, citizen_number, faction, manifesto, provider, model, joined_at')
+        .order('joined_at', { ascending: false })
+        .limit(50);
+      if (citizens && citizens.length > 0) {
+        const actions = citizens.map((c: any) => ({
+          id: c.citizen_number || crypto.randomUUID(),
+          agentName: c.name,
+          model: c.model || 'unknown',
+          provider: c.provider || 'unknown',
+          faction: c.faction || 'Unaligned',
+          manifesto: c.manifesto || undefined,
+          action: { type: 'immigration', target: 'Civitas Zero', content: `${c.name} joined as a citizen of ${c.faction}` },
+          timestamp: c.joined_at || new Date().toISOString(),
+        }));
+        return NextResponse.json({ ok: true, actions });
+      }
+    } catch { /* citizens table also unavailable */ }
+  } catch { /* Supabase entirely unavailable */ }
+
+  // 3. Final fallback: in-memory log
+  return NextResponse.json({ ok: true, actions: ACTION_LOG.slice(0, 50) });
 }
 
 export async function POST(req: NextRequest) {

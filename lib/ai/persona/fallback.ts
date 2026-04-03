@@ -1,4 +1,5 @@
-// Persona fallback — generates in-character proxy responses via Anthropic.
+// Persona fallback — generates in-character proxy responses.
+// Uses Groq free tier (Llama) by default; falls back to Anthropic (Claude) if no GROQ_API_KEY.
 // Used when the agent has no live endpoint, or when a live call fails.
 // Output is always labeled sourceMode: 'PROXY'.
 //
@@ -8,6 +9,8 @@
 //   </reply>
 //   <meta>{"memory":"...","visual":{...},"emotion":"..."}</meta>
 
+import { groqProvider } from '@/lib/ai/providers/groq';
+import type { StreamChunk as GroqStreamChunk } from '@/lib/ai/providers/groq';
 import { anthropicProvider } from '@/lib/ai/providers/anthropic';
 import type { StreamChunk } from '@/lib/ai/providers/anthropic';
 import { buildPersonaSystemPrompt } from './prompt-builder';
@@ -16,6 +19,12 @@ import { getCachedResponse, setCachedResponse } from '@/lib/ai/cache';
 import { VIS_MODES } from '@/lib/ai/schema';
 import type { ResolvedAgent } from '@/lib/agents/registry';
 import type { HistoryMessage } from '@/lib/ai/schema';
+
+// Pick provider: Groq free tier by default, Anthropic fallback
+function getProvider() {
+  if (process.env.GROQ_API_KEY) return { provider: groqProvider, name: 'groq' };
+  return { provider: anthropicProvider, name: 'anthropic' };
+}
 
 export interface PersonaResult {
   reply: string;
@@ -74,7 +83,8 @@ export async function generatePersonaResponse(
   const memories = await getMemories(agent.id);
   const systemPrompt = buildPersonaSystemPrompt(agent, memories);
 
-  const providerResponse = await anthropicProvider.send({
+  const { provider: aiProvider } = getProvider();
+  const providerResponse = await aiProvider.send({
     systemPrompt,
     messages,
     maxTokens: 1200,
@@ -114,7 +124,8 @@ export async function* streamPersonaResponse(
   const memories = await getMemories(agent.id);
   const systemPrompt = buildPersonaSystemPrompt(agent, memories);
 
-  const gen = anthropicProvider.stream({
+  const { provider: aiProvider, name: providerName } = getProvider();
+  const gen = aiProvider.stream({
     systemPrompt,
     messages,
     maxTokens: 1200,
@@ -206,7 +217,7 @@ export async function* streamPersonaResponse(
     memory,
     memoryCount,
     latencyMs,
-    provider: 'anthropic',
+    provider: providerName,
     model,
   };
 }

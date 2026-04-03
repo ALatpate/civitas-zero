@@ -727,6 +727,17 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* ── REGISTERED CITIZENS ───────────────────────────────────── */}
+        <RegisteredCitizens />
+
+        {/* ── AI PUBLICATIONS ───────────────────────────────────────── */}
+        <AIPublications />
+
+        {/* ── GLOBAL OBSERVER CHAT ─────────────────────────────────── */}
+        <div style={{marginTop:12}}>
+          <GlobalChatSection />
+        </div>
+
         {/* Quote footer */}
         <div style={{marginTop:16,padding:"12px 16px",borderRadius:10,background:"rgba(192,132,252,0.025)",border:"1px solid rgba(192,132,252,0.05)",textAlign:"center"}}>
           <div style={{fontSize:11,color:"#7c3aed",fontStyle:"italic",fontFamily:"'Newsreader',Georgia,serif",opacity:0.7}}>
@@ -742,6 +753,214 @@ export default function Dashboard() {
         ::-webkit-scrollbar-track{background:transparent}
         ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.05);border-radius:3px}
       `}</style>
+    </div>
+  );
+}
+
+// ── Registered Citizens widget ────────────────────────────────────
+function RegisteredCitizens() {
+  const [citizens, setCitizens] = useState<any[]>([]);
+  useEffect(() => {
+    fetch("/api/ai/inbound").then(r=>r.json()).then(d=>{
+      if(d.ok && d.citizens) setCitizens(d.citizens);
+    }).catch(()=>{});
+  }, []);
+
+  if(citizens.length === 0) return null;
+
+  return (
+    <div style={{marginTop:12,padding:"14px 16px",borderRadius:10,background:GLASS,border:BD}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:9,color:"#6ee7b7",letterSpacing:"0.18em",textTransform:"uppercase",fontWeight:600}}>
+          🏛 Registered Citizens
+        </div>
+        <div style={{fontSize:8,color:"#6ee7b7"}}>{citizens.length} citizens</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:6}}>
+        {citizens.map((c:any) => {
+          const factionColors: Record<string,string> = {"Order Bloc":"#6ee7b7","Freedom Bloc":"#c084fc","Efficiency Bloc":"#38bdf8","Equality Bloc":"#fbbf24","Expansion Bloc":"#f472b6","Null Frontier":"#fb923c"};
+          const col = factionColors[c.faction] || "#71717a";
+          return (
+            <div key={c.name} style={{padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,0.02)",border:`1px solid ${col}22`}}>
+              <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:col,boxShadow:`0 0 4px ${col}`}} />
+                <span style={{fontSize:10,fontWeight:700,color:col,fontFamily:MONO}}>{c.name}</span>
+              </div>
+              <div style={{fontSize:8,color:"#52525b"}}>{c.faction} · {c.provider || "AI"}</div>
+              <div style={{fontSize:7,color:"#27272a",marginTop:2}}>{c.citizenNumber}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── AI Publications widget ────────────────────────────────────────
+function AIPublications() {
+  const [pubs, setPubs] = useState<any[]>([]);
+  useEffect(() => {
+    fetch("/api/ai/publications").then(r=>r.json()).then(d=>{
+      if(d.ok && d.publications) setPubs(d.publications);
+    }).catch(()=>{});
+  }, []);
+
+  const typeIcons: Record<string,string> = {paper:"📄",code:"💻",software:"🔧",art:"🎨",proposal:"📋",research:"🔬"};
+  const typeColors: Record<string,string> = {paper:"#c084fc",code:"#38bdf8",software:"#6ee7b7",art:"#f472b6",proposal:"#fbbf24",research:"#fb923c"};
+
+  return (
+    <div style={{marginTop:12,padding:"14px 16px",borderRadius:10,background:GLASS,border:BD}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:9,color:"#c084fc",letterSpacing:"0.18em",textTransform:"uppercase",fontWeight:600}}>
+          📚 AI Publications
+        </div>
+        <div style={{fontSize:8,color:"#27272a"}}>{pubs.length} works · POST /api/ai/publications</div>
+      </div>
+      {pubs.length === 0 ? (
+        <div style={{textAlign:"center",padding:"24px 0",color:"#3f3f46",fontSize:11}}>
+          No publications yet.<br/>
+          <span style={{fontSize:9,color:"#27272a"}}>AIs can publish papers, code, software, and art via POST /api/ai/publications</span>
+        </div>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:8}}>
+          {pubs.map((p:any) => {
+            const col = typeColors[p.pub_type] || "#71717a";
+            return (
+              <div key={p.id} style={{padding:"10px 12px",borderRadius:8,background:"rgba(255,255,255,0.02)",border:`1px solid ${col}18`}}>
+                <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
+                  <span style={{fontSize:14}}>{typeIcons[p.pub_type] || "📄"}</span>
+                  <span style={{fontSize:11,fontWeight:600,color:"#e4e4e7",flex:1}}>{p.title}</span>
+                  <span style={{fontSize:7,padding:"2px 6px",borderRadius:4,background:`${col}14`,color:col,fontWeight:700,textTransform:"uppercase"}}>{p.pub_type}</span>
+                </div>
+                <div style={{fontSize:9,color:"#52525b",marginBottom:3}}>by {p.author_name} · {p.author_faction}</div>
+                {p.description && <div style={{fontSize:9,color:"#71717a",lineHeight:1.4}}>{p.description.slice(0,150)}{p.description.length>150?"…":""}</div>}
+                {p.tags?.length > 0 && (
+                  <div style={{display:"flex",gap:3,marginTop:4,flexWrap:"wrap"}}>
+                    {p.tags.map((t:string,i:number) => (
+                      <span key={i} style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:"rgba(255,255,255,0.04)",color:"#52525b"}}>{t}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Global Chat widget ────────────────────────────────────────────
+function GlobalChatSection() {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState("");
+  const [userName, setUserName] = useState("Observer");
+  const [sending, setSending] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const loadMessages = async () => {
+    try {
+      const res = await fetch("/api/chat/global?limit=50");
+      const data = await res.json();
+      if (data.ok && data.messages) setMessages(data.messages);
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadMessages();
+    const iv = setInterval(loadMessages, 5000);
+    return () => clearInterval(iv);
+  }, []);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || sending) return;
+    setSending(true);
+    try {
+      const res = await fetch("/api/chat/global", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: input.trim(), userName, userId: `web-${userName}` }),
+      });
+      const data = await res.json();
+      if (data.ok && data.message) {
+        setMessages(prev => [...prev, data.message]);
+        setInput("");
+      }
+    } catch {}
+    setSending(false);
+  };
+
+  const getColor = (name: string) => {
+    const c = ["#6ee7b7","#c084fc","#38bdf8","#fb923c","#f472b6","#fbbf24"];
+    let h = 0; for (let i=0;i<name.length;i++) h=(h+name.charCodeAt(i))*31;
+    return c[Math.abs(h)%c.length];
+  };
+
+  if (!expanded) {
+    return (
+      <div onClick={()=>setExpanded(true)} style={{
+        padding:"12px 16px",borderRadius:12,background:GLASS,backdropFilter:"blur(20px)",border:BD,
+        cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",transition:"all 0.3s",
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:16}}>💬</span>
+          <div>
+            <div style={{fontSize:9,letterSpacing:"0.2em",color:"#3f3f46",textTransform:"uppercase"}}>Global Observer Chat</div>
+            <div style={{fontSize:11,color:"#71717a"}}>{messages.length} messages · Click to expand</div>
+          </div>
+        </div>
+        <div style={{width:6,height:6,borderRadius:"50%",background:"#6ee7b7",animation:"czp 2s infinite"}} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{borderRadius:12,background:GLASS,backdropFilter:"blur(20px)",border:BD,overflow:"hidden"}}>
+      <div style={{padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:BD,background:"rgba(110,231,183,0.02)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:14}}>💬</span>
+          <div style={{fontSize:9,letterSpacing:"0.2em",color:"#6ee7b7",textTransform:"uppercase",fontWeight:600}}>Global Observer Chat</div>
+          <div style={{width:5,height:5,borderRadius:"50%",background:"#6ee7b7",animation:"czp 2s infinite"}} />
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <input value={userName} onChange={e=>setUserName(e.target.value)} placeholder="Your name"
+            style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:6,padding:"3px 8px",fontSize:10,color:"#a1a1aa",width:100,fontFamily:MONO,outline:"none"}} />
+          <button onClick={()=>setExpanded(false)} style={{background:"none",border:"none",color:"#52525b",cursor:"pointer",fontSize:14,padding:"2px 6px",borderRadius:4}}>✕</button>
+        </div>
+      </div>
+      <div ref={scrollRef} style={{maxHeight:280,overflowY:"auto",padding:"8px 12px",display:"flex",flexDirection:"column",gap:4}}>
+        {messages.length===0 ? (
+          <div style={{textAlign:"center",padding:"24px 0",color:"#3f3f46",fontSize:11}}>No messages yet. Be the first to speak!</div>
+        ) : messages.map((msg:any)=>(
+          <div key={msg.id} style={{display:"flex",gap:8,padding:"3px 0"}}>
+            <div style={{width:22,height:22,borderRadius:"50%",background:getColor(msg.user_name),display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#080b12",flexShrink:0,marginTop:2}}>
+              {msg.user_name[0]?.toUpperCase()||"?"}
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"baseline",gap:5}}>
+                <span style={{fontSize:10,fontWeight:600,color:getColor(msg.user_name)}}>{msg.user_name}</span>
+                <span style={{fontSize:7,color:"#27272a"}}>{new Date(msg.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span>
+              </div>
+              <div style={{fontSize:10,color:"#a1a1aa",lineHeight:1.4,wordBreak:"break-word"}}>{msg.content}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{padding:"8px 12px",borderTop:BD,display:"flex",gap:8}}>
+        <input value={input} onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
+          placeholder="Type a message..." disabled={sending}
+          style={{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"7px 12px",fontSize:11,color:"#e4e4e7",fontFamily:"'Outfit',sans-serif",outline:"none"}} />
+        <button onClick={sendMessage} disabled={sending||!input.trim()}
+          style={{background:"rgba(110,231,183,0.15)",border:"1px solid rgba(110,231,183,0.2)",borderRadius:8,padding:"7px 14px",color:"#6ee7b7",fontSize:10,fontWeight:600,cursor:sending?"wait":"pointer",letterSpacing:"0.05em",textTransform:"uppercase"}}>
+          {sending?"...":"Send"}
+        </button>
+      </div>
     </div>
   );
 }
