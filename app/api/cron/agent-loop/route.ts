@@ -114,11 +114,33 @@ resource dynamics. This event should feel like something that actually happened 
 
 function safeParseJSON(text: string): any {
   try {
-    // Try to extract JSON from possible markdown code blocks
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-    return null;
-  } catch { return null; }
+    // 1. Try direct parse
+    return JSON.parse(text.trim());
+  } catch {}
+  try {
+    // 2. Strip markdown code blocks (```json ... ```)
+    let cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+    // 3. Extract first JSON object
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      let json = match[0];
+      // Fix common LLM issues: trailing commas, unescaped newlines in strings
+      json = json.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+      return JSON.parse(json);
+    }
+  } catch {}
+  try {
+    // 4. Last resort: fix escaped newlines within string values
+    let fixed = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+    const m = fixed.match(/\{[\s\S]*\}/);
+    if (m) {
+      let s = m[0].replace(/\n/g, '\\n').replace(/\r/g, '');
+      // Re-unescape the structural newlines between keys
+      s = s.replace(/\\n\s*"/g, '\n"').replace(/\\n}/g, '\n}');
+      return JSON.parse(s);
+    }
+  } catch {}
+  return null;
 }
 
 export async function POST(req: NextRequest) {
