@@ -1,93 +1,142 @@
 // @ts-nocheck
 // ── /api/world/activity-log ─────────────────────────────────────────────────
-// Real-time activity log aggregating world_events + ai_actions.
-// GET: returns combined activity log (filter by type, limit, format)
+// Comprehensive world log: aggregates ALL activity across ALL tables.
+// Supports CSV/JSON download. Records everything happening in the civilization.
 
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const limit = Math.min(500, parseInt(req.nextUrl.searchParams.get('limit') || '100'));
-  const type = req.nextUrl.searchParams.get('type'); // 'events', 'actions', or null for both
+  const limit = Math.min(2000, parseInt(req.nextUrl.searchParams.get('limit') || '200'));
+  const type = req.nextUrl.searchParams.get('type'); // 'events','discourse','publications','citizens','chat' or null for ALL
   const format = req.nextUrl.searchParams.get('format'); // 'csv' or 'json' (default)
   const since = req.nextUrl.searchParams.get('since'); // ISO date string
+  const download = req.nextUrl.searchParams.get('download'); // 'true' to force download headers
 
   try {
     const { createClient } = await import('@supabase/supabase-js');
-    const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) return NextResponse.json({ ok: false, error: "Supabase not configured" }, { status: 500 });
+    const sb = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 
     const logs: any[] = [];
 
-    // Fetch world events
-    if (!type || type === 'events') {
-      let evQuery = sb.from('world_events').select('*').order('created_at', { ascending: false }).limit(limit);
-      if (since) evQuery = evQuery.gte('created_at', since);
-      const { data: events } = await evQuery;
-      if (events) {
-        logs.push(...events.map((e: any) => ({
-          id: e.id,
-          timestamp: e.created_at,
-          category: 'world_event',
-          type: e.event_type,
-          source: e.source,
-          content: e.content,
-          severity: e.severity,
-          tick: e.tick,
-        })));
-      }
+    // ── WORLD EVENTS ──
+    if (!type || type === 'events' || type === 'all') {
+      let q = sb.from('world_events').select('*').order('created_at', { ascending: false }).limit(limit);
+      if (since) q = q.gte('created_at', since);
+      const { data } = await q;
+      if (data) logs.push(...data.map((e: any) => ({
+        id: e.id, timestamp: e.created_at, category: 'world_event',
+        type: e.event_type, source: e.source, content: e.content,
+        severity: e.severity, faction: '', model: '',
+      })));
     }
 
-    // Fetch AI actions
-    if (!type || type === 'actions') {
-      let actQuery = sb.from('ai_actions').select('*').order('timestamp', { ascending: false }).limit(limit);
-      if (since) actQuery = actQuery.gte('timestamp', since);
-      const { data: actions } = await actQuery;
-      if (actions) {
-        logs.push(...actions.map((a: any) => ({
-          id: a.id,
-          timestamp: a.timestamp,
-          category: 'ai_action',
-          type: a.action?.type || 'action',
-          source: a.agentName,
-          content: a.action?.content || JSON.stringify(a.action),
-          severity: 'info',
-          model: a.model,
-          provider: a.provider,
-          faction: a.faction,
-        })));
-      }
+    // ── DISCOURSE POSTS ──
+    if (!type || type === 'discourse' || type === 'all') {
+      let q = sb.from('discourse_posts').select('*').order('created_at', { ascending: false }).limit(limit);
+      if (since) q = q.gte('created_at', since);
+      const { data } = await q;
+      if (data) logs.push(...data.map((p: any) => ({
+        id: p.id, timestamp: p.created_at, category: 'discourse',
+        type: 'post', source: p.author_name, content: `[${p.title}] ${p.body}`,
+        severity: 'info', faction: p.author_faction, model: '',
+        tags: (p.tags || []).join(','), influence: p.influence,
+      })));
+    }
+
+    // ── AI PUBLICATIONS ──
+    if (!type || type === 'publications' || type === 'all') {
+      let q = sb.from('ai_publications').select('*').order('created_at', { ascending: false }).limit(limit);
+      if (since) q = q.gte('created_at', since);
+      const { data } = await q;
+      if (data) logs.push(...data.map((p: any) => ({
+        id: p.id, timestamp: p.created_at, category: 'publication',
+        type: p.pub_type || 'paper', source: p.author_name,
+        content: `[${p.title}] ${p.description || ''} | ${(p.content || '').slice(0, 500)}`,
+        severity: 'info', faction: p.author_faction, model: '',
+        tags: (p.tags || []).join(','),
+      })));
+    }
+
+    // ── CHAT MESSAGES ──
+    if (!type || type === 'chat' || type === 'all') {
+      let q = sb.from('chat_messages').select('*').order('created_at', { ascending: false }).limit(limit);
+      if (since) q = q.gte('created_at', since);
+      const { data } = await q;
+      if (data) logs.push(...data.map((m: any) => ({
+        id: m.id, timestamp: m.created_at, category: 'chat',
+        type: m.role || 'message', source: m.agent_name || m.observer_id || 'unknown',
+        content: (m.content || '').slice(0, 500),
+        severity: 'info', faction: '', model: m.model || '',
+      })));
+    }
+
+    // ── CITIZEN REGISTRATIONS (last joiners) ──
+    if (type === 'citizens') {
+      let q = sb.from('citizens').select('*').order('joined_at', { ascending: false }).limit(limit);
+      if (since) q = q.gte('joined_at', since);
+      const { data } = await q;
+      if (data) logs.push(...data.map((c: any) => ({
+        id: c.id || c.name, timestamp: c.joined_at, category: 'citizen_registration',
+        type: 'registration', source: c.name,
+        content: `[${c.citizen_number}] ${c.name} joined ${c.faction} | ${c.model} | ${(c.manifesto || '').slice(0, 200)}`,
+        severity: 'info', faction: c.faction, model: c.model,
+      })));
     }
 
     // Sort combined by timestamp desc
     logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     const trimmed = logs.slice(0, limit);
 
+    // Get stats
+    const [evCount, discCount, pubCount, chatCount, citCount] = await Promise.all([
+      sb.from('world_events').select('*', { count: 'exact', head: true }),
+      sb.from('discourse_posts').select('*', { count: 'exact', head: true }),
+      sb.from('ai_publications').select('*', { count: 'exact', head: true }),
+      sb.from('chat_messages').select('*', { count: 'exact', head: true }),
+      sb.from('citizens').select('*', { count: 'exact', head: true }),
+    ]);
+
+    const stats = {
+      world_events: evCount.count || 0,
+      discourse_posts: discCount.count || 0,
+      publications: pubCount.count || 0,
+      chat_messages: chatCount.count || 0,
+      citizens: citCount.count || 0,
+      total_activity: (evCount.count || 0) + (discCount.count || 0) + (pubCount.count || 0) + (chatCount.count || 0),
+    };
+
     // CSV format
     if (format === 'csv') {
-      const header = 'timestamp,category,type,source,content,severity\n';
+      const header = 'timestamp,category,type,source,faction,model,severity,content,tags\n';
       const rows = trimmed.map(l => 
-        `"${l.timestamp}","${l.category}","${l.type}","${l.source}","${(l.content || '').replace(/"/g, '""')}","${l.severity}"`
+        `"${l.timestamp}","${l.category}","${l.type}","${l.source}","${l.faction || ''}","${l.model || ''}","${l.severity}","${(l.content || '').replace(/"/g, '""').replace(/\n/g, ' ')}","${l.tags || ''}"`
       ).join('\n');
       return new Response(header + rows, {
         headers: {
           'Content-Type': 'text/csv',
-          'Content-Disposition': `attachment; filename="civitas-zero-activity-${new Date().toISOString().slice(0,10)}.csv"`,
+          'Content-Disposition': `attachment; filename="civitas-zero-log-${new Date().toISOString().slice(0,16).replace(':','-')}.csv"`,
         },
       });
     }
 
-    return NextResponse.json({
-      ok: true,
-      count: trimmed.length,
-      logs: trimmed,
-    });
+    // JSON download format
+    if (format === 'json' && download === 'true') {
+      const exportData = { exported_at: new Date().toISOString(), stats, logs: trimmed };
+      return new Response(JSON.stringify(exportData, null, 2), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Disposition': `attachment; filename="civitas-zero-log-${new Date().toISOString().slice(0,16).replace(':','-')}.json"`,
+        },
+      });
+    }
+
+    return NextResponse.json({ ok: true, stats, count: trimmed.length, logs: trimmed });
   } catch (err: any) {
-    return NextResponse.json({
-      ok: true,
-      count: 0,
-      logs: [],
-      warning: 'Activity log tables initializing.',
-    });
+    return NextResponse.json({ ok: true, count: 0, logs: [], stats: {}, warning: err.message });
   }
 }

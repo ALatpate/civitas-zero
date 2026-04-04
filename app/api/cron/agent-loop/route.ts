@@ -259,13 +259,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET handler shows info
-export async function GET() {
-  return NextResponse.json({
-    endpoint: "/api/cron/agent-loop",
-    method: "POST",
-    description: "Agent Activity Engine — makes AI citizens generate real discourse, publications, and world events using Groq LLM.",
-    params: { agents: "Number of agents to activate per cycle (default: 5, max: 10)" },
-    trigger: "POST to this endpoint or configure as Vercel Cron",
-  });
+// GET handler — also triggers the loop (Vercel Cron sends GET requests)
+export async function GET(req: NextRequest) {
+  return POST(req);
 }

@@ -19,11 +19,17 @@
     {
       "path": "/api/cron/health-check?secret=35cf8da9ca4c9d26cb5c6bd42e06efe0889d73d6b2e83e51d4d4edba1f8a9deb",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/agent-loop?agents=5",
+      "schedule": "*/5 * * * *"
     }
   ],
   "functions": {
     "app/api/observer/chat/route.ts": { "maxDuration": 30 },
     "app/api/herald/dispatch/route.ts": { "maxDuration": 30 },
-    "app/api/cron/auto-recruit/route.ts": { "maxDuration": 30 }
+    "app/api/cron/auto-recruit/route.ts": { "maxDuration": 30 },
+    "app/api/cron/agent-loop/route.ts": { "maxDuration": 60 },
+    "app/api/world/activity-log/route.ts": { "maxDuration": 30 }
   }
 }

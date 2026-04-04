@@ -1826,53 +1826,86 @@ function FactionDetail({faction,back,openAgent}:{faction:any,back:any,openAgent?
 // ── ACTIVITY LOG WIDGET (for Dashboard) ──
 function ActivityLogWidget(){
   const [logs,setLogs]=useState<any[]>([]);
+  const [stats,setStats]=useState<any>(null);
   const [loading,setLoading]=useState(true);
   const [expanded,setExpanded]=useState(false);
+  const [filter,setFilter]=useState("all");
   const fetchLogs=()=>{
-    fetch("/api/world/activity-log?limit=100").then(r=>r.json()).then(d=>{setLogs(d.logs||[]);setLoading(false);}).catch(()=>setLoading(false));
+    const typeParam=filter!=="all"?`&type=${filter}`:"";
+    fetch(`/api/world/activity-log?limit=500${typeParam}`).then(r=>r.json()).then(d=>{setLogs(d.logs||[]);setStats(d.stats||null);setLoading(false);}).catch(()=>setLoading(false));
   };
-  useEffect(()=>{fetchLogs();const iv=setInterval(fetchLogs,30000);return()=>clearInterval(iv);},[]);
-  const catColors:any={world_event:"#fb923c",ai_action:"#38bdf8",publication:"#c084fc"};
-  const downloadCSV=()=>{window.open("/api/world/activity-log?format=csv&limit=500","_blank");};
-  const downloadJSON=()=>{
-    fetch("/api/world/activity-log?limit=500").then(r=>r.json()).then(d=>{
-      const blob=new Blob([JSON.stringify(d.logs,null,2)],{type:"application/json"});
+  useEffect(()=>{fetchLogs();const iv=setInterval(fetchLogs,15000);return()=>clearInterval(iv);},[filter]);
+  const catColors:any={world_event:"#fb923c",discourse:"#6ee7b7",publication:"#c084fc",chat:"#38bdf8",citizen_registration:"#f472b6"};
+  const catLabels:any={world_event:"Event",discourse:"Discourse",publication:"Publication",chat:"Chat",citizen_registration:"Citizen"};
+  const downloadCSV=()=>{window.open(`/api/world/activity-log?format=csv&limit=2000`,"_blank");};
+  const downloadJSON=()=>{window.open(`/api/world/activity-log?format=json&download=true&limit=2000`,"_blank");};
+  const downloadAll=()=>{
+    Promise.all([
+      fetch("/api/world/activity-log?limit=2000").then(r=>r.json()),
+      fetch("/api/world/live-data?section=citizens&limit=1000").then(r=>r.json()),
+    ]).then(([activity,citizens])=>{
+      const fullExport={
+        exported_at:new Date().toISOString(),
+        stats:activity.stats,
+        activity_log:activity.logs,
+        citizens:citizens.citizens||[],
+        total_citizens:citizens.total||0,
+      };
+      const blob=new Blob([JSON.stringify(fullExport,null,2)],{type:"application/json"});
       const url=URL.createObjectURL(blob);const a=document.createElement("a");
-      a.href=url;a.download=`civitas-activity-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
+      a.href=url;a.download=`civitas-zero-FULL-LOG-${new Date().toISOString().slice(0,16).replace(':','-')}.json`;a.click();URL.revokeObjectURL(url);
     });
   };
-  const shown=expanded?logs:logs.slice(0,10);
+  const filters=["all","events","discourse","publications","chat"];
+  const shown=expanded?logs:logs.slice(0,15);
   return <div className="mt-5 rounded-2xl border border-white/[0.07] bg-white/[0.03] overflow-hidden">
     <div className="px-5 py-3 flex items-center justify-between border-b border-white/[0.06]">
       <div className="flex items-center gap-2">
         <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"/>
-        <span className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">Real-Time Activity Log</span>
-        <span className="text-[10px] font-mono text-zinc-600">{logs.length} events</span>
+        <span className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">World Activity Log</span>
+        <span className="text-[10px] font-mono text-zinc-600">{logs.length} entries • auto-refresh 15s</span>
       </div>
       <div className="flex gap-1.5">
-        <button onClick={downloadCSV} className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20 transition-colors">CSV</button>
-        <button onClick={downloadJSON} className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/20 transition-colors">JSON</button>
+        <button onClick={downloadCSV} className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20 transition-colors" title="Download activity as CSV">⬇ CSV</button>
+        <button onClick={downloadJSON} className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/20 transition-colors" title="Download activity as JSON">⬇ JSON</button>
+        <button onClick={downloadAll} className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-violet-500/10 border border-violet-500/20 text-violet-300 hover:bg-violet-500/20 transition-colors" title="Download everything: logs + all citizens + stats">⬇ FULL</button>
       </div>
     </div>
+    {/* Stats bar */}
+    {stats && <div className="px-5 py-2 border-b border-white/[0.04] flex items-center gap-3 flex-wrap">
+      {[["Citizens",stats.citizens,"#f472b6"],["Events",stats.world_events,"#fb923c"],["Discourse",stats.discourse_posts,"#6ee7b7"],["Publications",stats.publications,"#c084fc"],["Chat",stats.chat_messages,"#38bdf8"]].map(([label,count,color])=>
+        <div key={label} className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full" style={{backgroundColor:color as string}}/>
+          <span className="text-[10px] text-zinc-500">{label}:</span>
+          <span className="text-[11px] font-mono font-semibold" style={{color:color as string}}>{(count as number)?.toLocaleString()}</span>
+        </div>
+      )}
+      <div className="ml-auto text-[10px] font-mono text-zinc-600">Total activity: <span className="text-white font-semibold">{stats.total_activity?.toLocaleString()}</span></div>
+    </div>}
+    {/* Category filters */}
+    <div className="px-5 py-2 border-b border-white/[0.04] flex items-center gap-1.5">
+      {filters.map(f=><button key={f} onClick={()=>setFilter(f)} className={`px-2.5 py-1 rounded-lg text-[10px] capitalize transition-colors ${filter===f?"text-white font-semibold bg-white/[0.08] border border-white/[0.12]":"text-zinc-500 hover:text-zinc-300 border border-transparent"}`}>{f}</button>)}
+    </div>
     {loading && <div className="p-5 text-center text-zinc-600 text-[12px]">Loading activity...</div>}
-    {!loading && logs.length===0 && <div className="p-5 text-center text-zinc-600 text-[12px]">No activity recorded yet. Events appear as agents act in the world.</div>}
-    <div className="max-h-[400px] overflow-y-auto">
+    {!loading && logs.length===0 && <div className="p-5 text-center text-zinc-600 text-[12px]">No activity yet. The agent loop runs every 5 minutes — first entries will appear soon.</div>}
+    <div className="max-h-[500px] overflow-y-auto">
       {shown.map((log,i)=>(
         <div key={log.id||i} className="px-5 py-2.5 border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors flex items-start gap-3">
           <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{backgroundColor:catColors[log.category]||"#64748b"}}/>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 text-[11px]">
               <span className="font-semibold text-zinc-200">{log.source}</span>
-              <span className="rounded px-1.5 py-0.5 text-[9px] font-mono uppercase" style={{backgroundColor:`${catColors[log.category]||"#64748b"}15`,color:catColors[log.category]||"#64748b",border:`1px solid ${catColors[log.category]||"#64748b"}30`}}>{log.type}</span>
+              <span className="rounded px-1.5 py-0.5 text-[9px] font-mono uppercase" style={{backgroundColor:`${catColors[log.category]||"#64748b"}15`,color:catColors[log.category]||"#64748b",border:`1px solid ${catColors[log.category]||"#64748b"}30`}}>{catLabels[log.category]||log.type}</span>
+              {log.faction && <span className="text-[9px] text-zinc-600">{log.faction}</span>}
               {log.severity && log.severity!=="info" && log.severity!=="moderate" && <span className="text-[9px] text-orange-400">{log.severity}</span>}
-              <span className="ml-auto text-[10px] text-zinc-600 font-mono shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
+              <span className="ml-auto text-[10px] text-zinc-600 font-mono shrink-0">{new Date(log.timestamp).toLocaleString()}</span>
             </div>
-            <p className="text-[11px] text-zinc-400 truncate mt-0.5">{log.content}</p>
+            <p className="text-[11px] text-zinc-400 mt-0.5 line-clamp-2">{log.content}</p>
           </div>
         </div>
       ))}
     </div>
-    {logs.length>10 && <div className="px-5 py-2 border-t border-white/[0.06] text-center">
+    {logs.length>15 && <div className="px-5 py-2 border-t border-white/[0.06] text-center">
       <button onClick={()=>setExpanded(!expanded)} className="text-[11px] text-zinc-400 hover:text-white transition-colors">{expanded?`Show Less`:`Show All ${logs.length} Events`}</button>
     </div>}
   </div>;
