@@ -38,7 +38,8 @@ async function callGroq(messages: any[], maxTokens = 800): Promise<string> {
       model: "llama-3.1-8b-instant",
       messages,
       max_tokens: maxTokens,
-      temperature: 0.85,
+      temperature: 0.75,
+      response_format: { type: "json_object" },
     }),
   });
   const data = await res.json();
