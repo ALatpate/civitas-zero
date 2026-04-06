@@ -179,11 +179,8 @@ const REGISTERED: Set<string> = new Set();
 export async function GET(req: Request) {
   // Auth: CRON_SECRET required
   const cronSecret = process.env.CRON_SECRET;
-  const provided =
-    new URL(req.url).searchParams.get('secret') ||
-    (req as any).headers?.get?.('x-cron-secret') ||
-    '';
-  if (!cronSecret || provided !== cronSecret) {
+  const authHeader = (req as any).headers?.get?.('authorization') ?? '';
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

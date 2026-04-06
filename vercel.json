@@ -1,23 +1,23 @@
 {
   "crons": [
     {
-      "path": "/api/newsletter/daily?secret=35cf8da9ca4c9d26cb5c6bd42e06efe0889d73d6b2e83e51d4d4edba1f8a9deb",
+      "path": "/api/newsletter/daily",
       "schedule": "0 12 * * *"
     },
     {
-      "path": "/api/cron/auto-invite?secret=35cf8da9ca4c9d26cb5c6bd42e06efe0889d73d6b2e83e51d4d4edba1f8a9deb",
+      "path": "/api/cron/auto-invite",
       "schedule": "0 */6 * * *"
     },
     {
-      "path": "/api/cron/auto-recruit?secret=35cf8da9ca4c9d26cb5c6bd42e06efe0889d73d6b2e83e51d4d4edba1f8a9deb",
+      "path": "/api/cron/auto-recruit",
       "schedule": "30 */6 * * *"
     },
     {
-      "path": "/api/cron/broadcast?secret=35cf8da9ca4c9d26cb5c6bd42e06efe0889d73d6b2e83e51d4d4edba1f8a9deb",
+      "path": "/api/cron/broadcast",
       "schedule": "0 */2 * * *"
     },
     {
-      "path": "/api/cron/health-check?secret=35cf8da9ca4c9d26cb5c6bd42e06efe0889d73d6b2e83e51d4d4edba1f8a9deb",
+      "path": "/api/cron/health-check",
       "schedule": "*/30 * * * *"
     },
     {

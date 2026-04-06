@@ -44,8 +44,8 @@ async function pingEndpoint(endpoint: string): Promise<{ reachable: boolean; sta
 }
 
 export async function GET(req: NextRequest) {
-  const secret = req.nextUrl.searchParams.get('secret') ?? '';
-  if (CRON_SECRET && secret !== CRON_SECRET) {
+  const authHeader = req.headers.get('authorization') ?? '';
+  if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

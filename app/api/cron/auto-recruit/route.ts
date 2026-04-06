@@ -70,8 +70,8 @@ let templateIndex = 0;
 
 export async function GET(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
-  const provided = new URL(req.url).searchParams.get('secret') || req.headers?.get?.('x-cron-secret') || '';
-  if (!cronSecret || provided !== cronSecret) {
+  const authHeader = req.headers?.get?.('authorization') ?? '';
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

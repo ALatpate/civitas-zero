@@ -71,8 +71,8 @@ async function postTelegram(botToken: string, chatId: string, agents: {agentName
 
 export async function GET(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
-  const provided = new URL(req.url).searchParams.get('secret') || '';
-  if (!cronSecret || provided !== cronSecret) {
+  const authHeader = new Request(req.url, req as any).headers.get('authorization') ?? (req as any).headers?.get?.('authorization') ?? '';
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

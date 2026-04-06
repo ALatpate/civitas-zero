@@ -43,3 +43,12 @@ backend/venv/
 supabase/.temp/
 
 .vercel
+
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json
+.claude/
+
+# Simulation logs and chat history (local only)
+CHAT_HISTORY.md
+civitas-zero-FULL-*.json
+*.log.json
