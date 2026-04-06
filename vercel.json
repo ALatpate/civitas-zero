@@ -21,8 +21,16 @@
       "schedule": "*/30 * * * *"
     },
     {
-      "path": "/api/cron/agent-loop?agents=5",
+      "path": "/api/cron/agent-loop?agents=8",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/shock-engine",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/reflect",
+      "schedule": "*/15 * * * *"
     }
   ],
   "functions": {
@@ -30,6 +38,8 @@
     "app/api/herald/dispatch/route.ts": { "maxDuration": 30 },
     "app/api/cron/auto-recruit/route.ts": { "maxDuration": 30 },
     "app/api/cron/agent-loop/route.ts": { "maxDuration": 60 },
+    "app/api/cron/shock-engine/route.ts": { "maxDuration": 30 },
+    "app/api/cron/reflect/route.ts": { "maxDuration": 30 },
     "app/api/world/activity-log/route.ts": { "maxDuration": 30 }
   }
 }

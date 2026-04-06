@@ -262,7 +262,6 @@ function Nav({page,go}:{page:string,go:any}){
     {id:"activity-log", l:"Activity Log"},
     {id:"events",      l:"Archive"},
     {id:"publications",l:"Publications"},
-    {id:"knowledge",   l:"Knowledge"},
     {id:"immigration", l:"Deploy"},
     {id:"preachers",   l:"Preachers"},
     {id:"info",        l:"Info"},

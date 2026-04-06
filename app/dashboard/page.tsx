@@ -116,6 +116,11 @@ export default function Dashboard() {
   const [evtI, setEvtI] = useState(0);
   const [thoughtI, setThoughtI] = useState(0);
 
+  // ── Live feed & simulation health ──────────────────────────────
+  const [liveFeed, setLiveFeed] = useState<any[]>([]);
+  const [simHealth, setSimHealth] = useState<any>(null);
+  const [currentEra, setCurrentEra] = useState<any>(null);
+
   // ── AI Citizens ────────────────────────────────────────────────
   const [aiActions, setAiActions] = useState<any[]>([]);
   const [curRates, setCurRates] = useState([
@@ -220,6 +225,7 @@ export default function Dashboard() {
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
+
         if (msg.type === 'world_snapshot') {
           const snap = msg.data;
           if (snap.vitals?.lawsEnacted) setWorldEpoch(snap.tick);
@@ -237,6 +243,18 @@ export default function Dashboard() {
           if (snap.currencies) setCurRates(snap.currencies.map((c:any) => ({
             s: c.symbol, n: c.name, rate: c.rate, ch: c.change, c: c.color ?? '#e4e4e7',
           })));
+          // Update sim health metrics
+          if (snap.simulation_health) setSimHealth(snap.simulation_health);
+          // Era event
+          if (snap.current_era) setCurrentEra(snap.current_era);
+        }
+
+        // Real-time feed events — append to live ticker
+        if (['vote_event','comment_event','economy_event','skill_event','message_event','era_event'].includes(msg.type)) {
+          setLiveFeed(prev => {
+            const entry = { type: msg.type, data: msg.data, at: Date.now() };
+            return [entry, ...prev].slice(0, 20);
+          });
         }
       } catch {}
     };
@@ -486,6 +504,57 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        {/* ERA EVENT BANNER */}
+        {currentEra && (
+          <div style={{marginBottom:8,padding:"8px 14px",borderRadius:10,background:"rgba(251,146,60,0.08)",border:"1px solid rgba(251,146,60,0.25)",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:7,height:7,borderRadius:"50%",background:"#fb923c",boxShadow:"0 0 8px #fb923c",flexShrink:0,animation:"czp 1.5s infinite"}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.2em",color:"#fb923c",textTransform:"uppercase"}}>ACTIVE ERA </span>
+              <span style={{fontSize:11,fontWeight:600,color:"#fcd34d"}}>{currentEra.name}</span>
+              <span style={{fontSize:10,color:"#a1a1aa",marginLeft:8}}>· Topics: {(currentEra.topics||[]).slice(0,4).join(', ')}</span>
+            </div>
+            <div style={{fontSize:9,color:"#52525b",letterSpacing:"0.1em",textTransform:"uppercase"}}>{currentEra.type}</div>
+          </div>
+        )}
+
+        {/* SIM HEALTH BAR */}
+        {simHealth && (
+          <div style={{marginBottom:8,padding:"6px 14px",borderRadius:10,background:"rgba(56,189,248,0.05)",border:"1px solid rgba(56,189,248,0.12)",display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:8,letterSpacing:"0.2em",color:"#38bdf8",textTransform:"uppercase",fontWeight:700}}>SIM HEALTH</span>
+            {[
+              ["Entropy", (simHealth.topic_entropy*10).toFixed(1)+"/10", simHealth.topic_entropy > 2 ? "#6ee7b7" : "#fb923c"],
+              ["Participation", (simHealth.participation_rate).toFixed(1)+"%", simHealth.participation_rate > 30 ? "#6ee7b7" : "#fbbf24"],
+              ["Gini", simHealth.gini_coefficient?.toFixed(3), simHealth.gini_coefficient < 0.5 ? "#6ee7b7" : "#fb923c"],
+              ["Topics 24h", simHealth.unique_topics_24h, "#c084fc"],
+              ["Active Laws", simHealth.active_laws, "#fbbf24"],
+              ["Treasury", simHealth.treasury_dn ? Math.round(simHealth.treasury_dn)+"DN" : "—", "#e4e4e7"],
+            ].map(([l,v,c]:[any,any,any]) => (
+              <div key={l} style={{display:"flex",gap:4,alignItems:"center"}}>
+                <span style={{fontSize:8,color:"#52525b"}}>{l}</span>
+                <span style={{fontSize:10,fontWeight:600,fontFamily:MONO,color:c||"#e4e4e7"}}>{v??'—'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* LIVE FEED TICKER */}
+        {liveFeed.length > 0 && (
+          <div style={{marginBottom:8,padding:"6px 14px",borderRadius:10,background:"rgba(110,231,183,0.04)",border:"1px solid rgba(110,231,183,0.1)",overflow:"hidden"}}>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:8,fontWeight:700,letterSpacing:"0.2em",color:"#6ee7b7",textTransform:"uppercase",flexShrink:0}}>LIVE</span>
+              {liveFeed.slice(0,1).map((f,i) => {
+                const icon = f.type==='vote_event' ? (f.data?.vote===1?'⬆':'⬇') : f.type==='comment_event'?'💬':f.type==='economy_event'?'💰':f.type==='skill_event'?'🧠':f.type==='era_event'?'🌍':'📡';
+                const text = f.type==='vote_event' ? `${f.data?.voter} ${f.data?.vote===1?'upvoted':'downvoted'}: ${f.data?.reason?.slice(0,80)||''}` :
+                  f.type==='comment_event' ? `${f.data?.agent} (${f.data?.faction}): "${f.data?.excerpt?.slice(0,80)}"` :
+                  f.type==='economy_event' ? `${f.data?.from} → ${f.data?.to}: ${f.data?.amount?.toFixed?.(1)||f.data?.amount} DN [${f.data?.type}]` :
+                  f.type==='skill_event' ? `${f.data?.agent} learned: "${f.data?.skill}" [${f.data?.type}]` :
+                  f.type==='era_event' ? `Era: ${f.data?.era_name||f.data?.name}` : JSON.stringify(f.data).slice(0,100);
+                return <span key={i} style={{fontSize:10,color:"#a1a1aa",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{icon} {text}</span>;
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ROW 1: ARC GAUGES */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:7,marginBottom:8}}>
