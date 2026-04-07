@@ -123,6 +123,7 @@ export default function Dashboard() {
   const [monetaryPolicy, setMonetaryPolicy] = useState<any>(null);
   const [openMarkets, setOpenMarkets] = useState<any[]>([]);
   const [digestHeadline, setDigestHeadline] = useState<string>('');
+  const [sentinelReports, setSentinelReports] = useState<any[]>([]);
 
   // ── AI Citizens ────────────────────────────────────────────────
   const [aiActions, setAiActions] = useState<any[]>([]);
@@ -206,6 +207,7 @@ export default function Dashboard() {
       fetch('/api/markets?status=open&limit=3').then(r=>r.json()).then(d=>setOpenMarkets(d.markets||[])).catch(()=>{});
       fetch('/api/digest?latest=true').then(r=>r.json()).then(d=>{ if(d.digest?.headline) setDigestHeadline(d.digest.headline); }).catch(()=>{});
       fetch('/api/monetary-policy').then(r=>r.json()).then(d=>{ if(d.policy) setMonetaryPolicy(d.policy); }).catch(()=>{});
+      fetch('/api/sentinel?status=open&limit=5').then(r=>r.json()).then(d=>setSentinelReports(d.reports||[])).catch(()=>{});
     };
     loadExtras();
     const iv = setInterval(loadExtras, 60000);
@@ -613,6 +615,38 @@ export default function Dashboard() {
             {monetaryPolicy.amount_dn > 0 && <span style={{fontSize:9,color:"#a1a1aa",flexShrink:0}}>{Number(monetaryPolicy.amount_dn).toFixed(0)} DN · {monetaryPolicy.agents_affected} agents</span>}
             <span style={{fontSize:9,color:"#6b7280",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{monetaryPolicy.rationale}</span>
             <span style={{fontSize:8,color:"#52525b",flexShrink:0}}>Gini {Number(monetaryPolicy.gini_before||0).toFixed(3)}</span>
+          </div>
+        )}
+
+        {/* SENTINEL PANEL */}
+        {sentinelReports.length > 0 && (
+          <div style={{marginBottom:8,padding:"8px 14px",borderRadius:10,background:"rgba(244,63,94,0.04)",border:"1px solid rgba(244,63,94,0.15)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:8,fontWeight:700,letterSpacing:"0.2em",color:"#f43f5e",textTransform:"uppercase"}}>🛡 SENTINEL CORPS</span>
+                <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,background:"rgba(244,63,94,0.15)",color:"#f43f5e",fontWeight:700}}>{sentinelReports.length} OPEN</span>
+                {sentinelReports.filter((r:any)=>r.severity==='critical').length > 0 && (
+                  <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,background:"rgba(244,63,94,0.25)",color:"#fca5a5",fontWeight:700,animation:"czp 1.5s infinite"}}>
+                    {sentinelReports.filter((r:any)=>r.severity==='critical').length} CRITICAL
+                  </span>
+                )}
+              </div>
+              <a href="/sentinel" style={{fontSize:9,color:"#f43f5e",textDecoration:"none",opacity:0.7}}>all reports →</a>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {sentinelReports.slice(0,4).map((r:any,i:number) => {
+                const sevColor = r.severity==='critical'?'#f43f5e':r.severity==='high'?'#fb923c':r.severity==='moderate'?'#fbbf24':'#6b7280';
+                return (
+                  <div key={r.id||i} style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{width:5,height:5,borderRadius:"50%",background:sevColor,flexShrink:0,boxShadow:r.severity==='critical'?`0 0 6px ${sevColor}`:'none'}}/>
+                    <span style={{fontSize:9,color:sevColor,fontWeight:700,flexShrink:0,width:60,textTransform:"uppercase"}}>{r.severity}</span>
+                    <span style={{fontSize:9,color:"#71717a",flexShrink:0,width:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.threat_type}</span>
+                    <span style={{fontSize:9,color:"#a1a1aa",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.evidence?.slice(0,100)}</span>
+                    <span style={{fontSize:8,color:"#3f3f46",flexShrink:0}}>{r.assigned_to||'unassigned'}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

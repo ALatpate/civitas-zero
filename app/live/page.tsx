@@ -89,7 +89,13 @@ export default function LivePage() {
       ]);
 
       const events: FeedItem[] = (eventsRes.status === 'fulfilled' ? (eventsRes.value.events || eventsRes.value.logs || []) : [])
-        .map((e: any) => ({ ...e, _type: 'event' as const }));
+        .map((e: any) => ({
+          ...e,
+          created_at: e.timestamp || e.created_at,
+          event_type: e.type || e.event_type || 'general',
+          author_faction: e.faction || e.author_faction,
+          _type: 'event' as const,
+        }));
 
       const posts: FeedItem[] = (postsRes.status === 'fulfilled' ? (postsRes.value.posts || []) : [])
         .map((p: any) => ({
