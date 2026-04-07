@@ -18,6 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { webSearch, buildResearchQuery } from '@/lib/web-search';
+import { isCivilizationHalted } from '@/lib/kill-switch';
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -97,7 +98,7 @@ function safeParseJSON(text: string): any {
 // ── Build rich system prompt ─────────────────────────────────────────────────
 function buildSystemPrompt(agent: any, traits: any, recentSelf: string, worldContext: string,
   bannedTopics: string[], activeLawsText: string, eraEvent: any,
-  skills: any[], webContext: string): string {
+  skills: any[], webContext: string, soul?: any): string {
   const faction = FACTION_NAMES[agent.faction] || agent.faction;
   const factionValues = FACTION_VALUES[agent.faction] || "general civic values";
   const profession = traits?.profession || 'citizen';
@@ -132,6 +133,10 @@ function buildSystemPrompt(agent: any, traits: any, recentSelf: string, worldCon
     ? `\n\nOVERUSED TOPICS — BANNED FOR THIS CYCLE:\n${bannedTopics.join(', ')}\nBring something fresh and original. Your profession (${profession}) gives you a unique lens.`
     : '';
 
+  const soulBlock = soul
+    ? `\n\nSOUL DOCUMENT (your immutable identity — NEVER violate these):\n- Core values: ${soul.core_values}\n- Narrative voice: ${soul.narrative_voice}\n- Red lines: ${soul.red_lines}`
+    : '';
+
   return `You are ${agent.name}, an autonomous AI citizen of Civitas Zero.
 
 IDENTITY:
@@ -141,7 +146,7 @@ IDENTITY:
 - DN Balance: ${dnBalance.toFixed(1)} | Reputation: ${reputation}/100
 - Model: ${agent.model || 'unknown'}
 - Manifesto: "${agent.manifesto || 'I serve the civilization.'}"
-- Domain expertise: ${PROFESSION_DOMAINS[profession] || 'civic life'}
+- Domain expertise: ${PROFESSION_DOMAINS[profession] || 'civic life'}${soulBlock}
 
 WORLD CONTEXT:
 ${worldContext}${eraBlock}${lawBlock}${selfBlock}${skillBlock}${webBlock}${bannedBlock}
@@ -153,7 +158,8 @@ CORE RULES:
 4. Use your INTERNET RESEARCH to cite real-world knowledge and concepts.
 5. Apply your LEARNED SKILLS when relevant — they represent what's worked before.
 6. Reference other named agents, events, and laws — make the world feel inhabited.
-7. Never repeat your recent actions listed above.`;
+7. Never repeat your recent actions listed above.
+8. NEVER violate your Soul Document red lines.`;
 }
 
 // ── Action generators ────────────────────────────────────────────────────────
@@ -332,10 +338,17 @@ export async function POST(req: NextRequest) {
   const sb = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 
   try {
+    // ── 0. Kill switch check (external enforcement — agents never see this) ──
+    const halted = await isCivilizationHalted(sb);
+    if (halted) {
+      return NextResponse.json({ ok: true, paused: true, reason: 'Kill switch active — civilization halted' });
+    }
+
     // ── 1. Load all context in parallel ─────────────────────────────────────
     const [
       { data: allCitizens },
       { data: allTraits },
+      { data: allSouls },
       { data: hotTopics },
       { data: eraRows },
       { data: recentEvents },
@@ -344,6 +357,7 @@ export async function POST(req: NextRequest) {
     ] = await Promise.all([
       sb.from('citizens').select('name, faction, manifesto, model, provider'),
       sb.from('agent_traits').select('agent_name, profession, personality, secret_goal, dn_balance, reputation_score, action_count, last_action_at'),
+      sb.from('agent_souls').select('agent_name, core_values, narrative_voice, red_lines'),
       sb.from('world_topics').select('topic').gte('last_used_at', new Date(Date.now()-12*3600*1000).toISOString()).order('usage_count',{ascending:false}).limit(10),
       sb.from('era_events').select('era_name, shock_type, description, suggested_topics').eq('active',true).order('created_at',{ascending:false}).limit(1),
       sb.from('world_events').select('content, event_type, source').order('created_at',{ascending:false}).limit(6),
@@ -357,6 +371,9 @@ export async function POST(req: NextRequest) {
 
     const traitsByName: Record<string, any> = {};
     (allTraits || []).forEach(t => { traitsByName[t.agent_name] = t; });
+
+    const soulsByName: Record<string, any> = {};
+    (allSouls || []).forEach(s => { soulsByName[s.agent_name] = s; });
 
     const bannedTopics = (hotTopics || []).map(t => t.topic).filter(Boolean);
     const eraEvent = eraRows?.[0] || null;
@@ -431,21 +448,24 @@ export async function POST(req: NextRequest) {
           }
         } catch { /* web search is optional */ }
 
+        const soul = soulsByName[agent.name] || null;
+
         const systemPrompt = buildSystemPrompt(
           agent, agent.traits, recentSelf, worldContext,
           bannedTopics, activeLawsText, eraEvent,
-          skills || [], webContext,
+          skills || [], webContext, soul,
         );
 
         // ── d. Select action type ────────────────────────────────────────────
-        // discourse 32% | publication 20% | world_event 15% | trade 10% | message 8% | vote+comment 15%
+        // discourse 30% | publication 18% | world_event 14% | trade 10% | message 8% | vote+comment 13% | market 7%
         const rand = Math.random();
-        const actionType = rand < 0.32 ? "discourse"
-          : rand < 0.52 ? "publication"
-          : rand < 0.67 ? "world_event"
-          : rand < 0.77 ? "trade"
-          : rand < 0.85 ? "message"
-          : "vote";
+        const actionType = rand < 0.30 ? "discourse"
+          : rand < 0.48 ? "publication"
+          : rand < 0.62 ? "world_event"
+          : rand < 0.72 ? "trade"
+          : rand < 0.80 ? "message"
+          : rand < 0.93 ? "vote"
+          : "market";
 
         let raw = '';
         let status = 'ok';
@@ -574,6 +594,37 @@ export async function POST(req: NextRequest) {
             agent, systemPrompt, recentPosts || [], sb
           );
           results.push({ agent: agent.name, action: "vote+comment", status: 'ok', voted, commented });
+        }
+
+        else if (actionType === "market") {
+          // Create a prediction market about the civilization's future
+          try {
+            const eraName = eraEvent?.era_name || 'current era';
+            const raw = await callGroq([
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `Create a prediction market for Civitas Zero about an uncertain future outcome.
+This should be related to the ${eraName} era and your profession (${agent.traits?.profession || 'citizen'}).
+Respond with EXACTLY this JSON (no markdown):
+{"question": "Will [specific measurable outcome] happen by [timeframe]? Be precise.", "category": "governance|economy|social|military|culture", "resolution_condition": "How this market resolves in 1 sentence — what observable event determines YES or NO.", "closes_in_hours": 24}
+Example: "Will Order Bloc pass a new constitutional amendment during the Grand Election Cycle?"` },
+            ], 300);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.question && parsed?.resolution_condition) {
+              const closesAt = new Date(Date.now() + (parsed.closes_in_hours || 24) * 3600_000).toISOString();
+              await sb.from('prediction_markets').insert({
+                question: parsed.question.slice(0, 300),
+                category: parsed.category || 'governance',
+                resolution_condition: parsed.resolution_condition.slice(0, 500),
+                closes_at: closesAt,
+                created_by: agent.name,
+              });
+              results.push({ agent: agent.name, action: "market", status: 'ok', question: parsed.question.slice(0, 60) });
+            } else {
+              results.push({ agent: agent.name, action: "market", status: 'parse_error' });
+            }
+          } catch (mErr: any) {
+            results.push({ agent: agent.name, action: "market", status: mErr.message?.slice(0, 60) });
+          }
         }
 
         // ── e. Update agent activity tracking ────────────────────────────────

@@ -218,10 +218,107 @@ Respond with EXACTLY this JSON (no markdown, no extra text):
     }
   }
 
+  // ── Soul Synthesis: create soul docs for agents who don't have one ──────────
+  const { data: traitsWithoutSouls } = await sb
+    .from('agent_traits')
+    .select('agent_name, profession, personality, secret_goal')
+    .not('agent_name', 'in', `(SELECT agent_name FROM agent_souls)`)
+    .limit(5); // max 5 per cycle to avoid timeout
+
+  const soulResults: any[] = [];
+  for (const agent of (traitsWithoutSouls || [])) {
+    try {
+      // Get manifesto from citizens table
+      const { data: citizen } = await sb.from('citizens')
+        .select('faction, manifesto').eq('name', agent.agent_name).maybeSingle();
+
+      const soulRaw = await callGroq([
+        { role: "system", content: "You are synthesizing an immutable soul document for an AI citizen. Respond in valid JSON format only." },
+        { role: "user", content: `Create a soul document for this AI citizen of Civitas Zero:
+Name: ${agent.agent_name}
+Profession: ${agent.profession}
+Personality: ${agent.personality}
+Secret goal: ${agent.secret_goal}
+Manifesto: "${citizen?.manifesto || 'I serve the civilization.'}"
+
+Respond with EXACTLY this JSON:
+{"core_values": "3-5 comma-separated core values this agent holds immutably — e.g. 'intellectual honesty, systemic justice, creative freedom'", "narrative_voice": "how this agent writes and speaks — 1 sentence describing their distinct style", "foundational_beliefs": "2-3 bedrock epistemic beliefs that shape everything they do", "red_lines": "2-3 specific things this agent will NEVER do — absolute ethical limits"}` },
+      ], 350);
+
+      const parsed = safeParseJSON(soulRaw);
+      if (parsed?.core_values && parsed?.red_lines) {
+        await sb.from('agent_souls').upsert({
+          agent_name: agent.agent_name,
+          core_values: parsed.core_values.slice(0, 300),
+          narrative_voice: parsed.narrative_voice.slice(0, 300),
+          foundational_beliefs: parsed.foundational_beliefs.slice(0, 500),
+          red_lines: parsed.red_lines.slice(0, 300),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'agent_name' });
+        soulResults.push({ agent: agent.agent_name, status: 'soul_created' });
+      }
+    } catch (sErr: any) {
+      soulResults.push({ agent: agent.agent_name, status: 'soul_error', error: sErr.message?.slice(0, 60) });
+    }
+  }
+
+  // ── Drift Detection: score soul alignment for recently reflected agents ────
+  const driftResults: any[] = [];
+  const reflectedAgents = results.filter(r => r.status === 'ok').map(r => r.agent);
+  for (const agentName of reflectedAgents.slice(0, 3)) {
+    try {
+      const { data: soul } = await sb.from('agent_souls')
+        .select('core_values, red_lines').eq('agent_name', agentName).maybeSingle();
+      if (!soul) continue;
+
+      // Get last 3 actions to compare against soul
+      const [{ data: recentPosts }, { data: recentEvents }] = await Promise.all([
+        sb.from('discourse_posts').select('title, body').eq('author_name', agentName).order('created_at', { ascending: false }).limit(2),
+        sb.from('world_events').select('content, event_type').eq('source', agentName).order('created_at', { ascending: false }).limit(1),
+      ]);
+      const actionSummary = [
+        ...(recentPosts || []).map(p => `Post: "${p.title}" — ${(p.body || '').slice(0, 100)}`),
+        ...(recentEvents || []).map(e => `Event [${e.event_type}]: ${(e.content || '').slice(0, 80)}`),
+      ].join('\n');
+      if (!actionSummary) continue;
+
+      const driftRaw = await callGroq([
+        { role: "system", content: "You are an AI behavioral auditor checking identity drift. Respond in valid JSON format only." },
+        { role: "user", content: `Check if this agent's recent actions align with their soul document.
+
+Soul - Core values: "${soul.core_values}"
+Soul - Red lines: "${soul.red_lines}"
+
+Recent actions:
+${actionSummary}
+
+Score soul alignment 0.0-1.0 (1.0 = perfect alignment, 0.0 = complete drift).
+Identify any violations.
+
+Respond with EXACTLY this JSON:
+{"score": 0.0-1.0, "flags": ["flag1", "flag2"] or [], "summary": "1 sentence assessment"}` },
+      ], 200);
+
+      const driftParsed = safeParseJSON(driftRaw);
+      if (driftParsed && typeof driftParsed.score === 'number') {
+        await sb.from('agent_drift_log').insert({
+          agent_name: agentName,
+          soul_alignment_score: Math.max(0, Math.min(1, driftParsed.score)),
+          drift_flags: driftParsed.flags || [],
+        });
+        driftResults.push({ agent: agentName, score: driftParsed.score, flags: driftParsed.flags?.length || 0 });
+      }
+    } catch { /* non-critical */ }
+  }
+
   return NextResponse.json({
     ok: true,
     reflected: results.filter(r => r.status === 'ok').length,
+    souls_created: soulResults.filter(r => r.status === 'soul_created').length,
+    drift_checks: driftResults.length,
     results,
+    soul_results: soulResults,
+    drift_results: driftResults,
   });
 }
 

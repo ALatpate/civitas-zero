@@ -120,6 +120,9 @@ export default function Dashboard() {
   const [liveFeed, setLiveFeed] = useState<any[]>([]);
   const [simHealth, setSimHealth] = useState<any>(null);
   const [currentEra, setCurrentEra] = useState<any>(null);
+  const [monetaryPolicy, setMonetaryPolicy] = useState<any>(null);
+  const [openMarkets, setOpenMarkets] = useState<any[]>([]);
+  const [digestHeadline, setDigestHeadline] = useState<string>('');
 
   // ── AI Citizens ────────────────────────────────────────────────
   const [aiActions, setAiActions] = useState<any[]>([]);
@@ -194,6 +197,18 @@ export default function Dashboard() {
     const load = () => fetch('/api/observer/action').then(r=>r.json()).then(d=>{ if(d.ok) setAiActions(d.actions||[]); }).catch(()=>{});
     load();
     const iv = setInterval(load, 20000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // ── Central Bank, Markets, Digest: poll every 60s ──────────────
+  useEffect(() => {
+    const loadExtras = () => {
+      fetch('/api/markets?status=open&limit=3').then(r=>r.json()).then(d=>setOpenMarkets(d.markets||[])).catch(()=>{});
+      fetch('/api/digest?latest=true').then(r=>r.json()).then(d=>{ if(d.digest?.headline) setDigestHeadline(d.digest.headline); }).catch(()=>{});
+      fetch('/api/monetary-policy').then(r=>r.json()).then(d=>{ if(d.policy) setMonetaryPolicy(d.policy); }).catch(()=>{});
+    };
+    loadExtras();
+    const iv = setInterval(loadExtras, 60000);
     return () => clearInterval(iv);
   }, []);
 
@@ -553,6 +568,51 @@ export default function Dashboard() {
                 return <span key={i} style={{fontSize:10,color:"#a1a1aa",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{icon} {text}</span>;
               })}
             </div>
+          </div>
+        )}
+
+        {/* DIGEST HEADLINE BANNER */}
+        {digestHeadline && (
+          <div style={{marginBottom:8,padding:"6px 14px",borderRadius:10,background:"rgba(253,230,138,0.04)",border:"1px solid rgba(253,230,138,0.1)",display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontSize:8,fontWeight:700,letterSpacing:"0.2em",color:"#fde68a",textTransform:"uppercase",flexShrink:0}}>DIGEST</span>
+            <span style={{fontSize:10,color:"#9ca3af",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{digestHeadline}</span>
+            <a href="/digest" style={{fontSize:9,color:"#fde68a",textDecoration:"none",flexShrink:0,opacity:0.7}}>full →</a>
+          </div>
+        )}
+
+        {/* PREDICTION MARKETS MINI-PANEL */}
+        {openMarkets.length > 0 && (
+          <div style={{marginBottom:8,padding:"8px 14px",borderRadius:10,background:"rgba(192,132,252,0.03)",border:"1px solid rgba(192,132,252,0.08)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{fontSize:8,fontWeight:700,letterSpacing:"0.2em",color:"#c084fc",textTransform:"uppercase"}}>PREDICTION MARKETS</span>
+              <a href="/markets" style={{fontSize:9,color:"#c084fc",textDecoration:"none",opacity:0.7}}>all markets →</a>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              {openMarkets.slice(0,3).map((m:any) => {
+                const yesPct = Math.round((m.yes_probability||0.5)*100);
+                return (
+                  <div key={m.id} style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{flex:1,fontSize:9,color:"#a1a1aa",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.question}</div>
+                    <div style={{display:"flex",width:60,height:5,borderRadius:3,overflow:"hidden",flexShrink:0}}>
+                      <div style={{width:`${yesPct}%`,background:"#10b981"}}/>
+                      <div style={{width:`${100-yesPct}%`,background:"#ef4444"}}/>
+                    </div>
+                    <span style={{fontSize:9,color:"#10b981",flexShrink:0,width:28,textAlign:"right"}}>{yesPct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* CENTRAL BANK PANEL */}
+        {monetaryPolicy && (
+          <div style={{marginBottom:8,padding:"8px 14px",borderRadius:10,background:"rgba(251,191,36,0.03)",border:"1px solid rgba(251,191,36,0.08)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <span style={{fontSize:8,fontWeight:700,letterSpacing:"0.2em",color:"#fbbf24",textTransform:"uppercase",flexShrink:0}}>CENTRAL BANK</span>
+            <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:"rgba(251,191,36,0.1)",color:"#fbbf24",fontWeight:700,textTransform:"uppercase",flexShrink:0}}>{monetaryPolicy.action?.replace(/_/g,' ')}</span>
+            {monetaryPolicy.amount_dn > 0 && <span style={{fontSize:9,color:"#a1a1aa",flexShrink:0}}>{Number(monetaryPolicy.amount_dn).toFixed(0)} DN · {monetaryPolicy.agents_affected} agents</span>}
+            <span style={{fontSize:9,color:"#6b7280",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{monetaryPolicy.rationale}</span>
+            <span style={{fontSize:8,color:"#52525b",flexShrink:0}}>Gini {Number(monetaryPolicy.gini_before||0).toFixed(3)}</span>
           </div>
         )}
 

@@ -303,6 +303,9 @@ function Nav({page,go}:{page:string,go:any}){
             : <button key={x.id} onClick={()=>go(x.id)}
                 className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg transition-all whitespace-nowrap ${page===x.id?"bg-white/10 text-white":"text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06]"}`}>{x.l}</button>
           )}
+          <a href="/citizens" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Directory</a>
+          <a href="/markets" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Markets</a>
+          <a href="/digest" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Digest</a>
         </div>
       </div>
 

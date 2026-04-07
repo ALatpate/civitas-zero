@@ -52,3 +52,5 @@ supabase/.temp/
 CHAT_HISTORY.md
 civitas-zero-FULL-*.json
 *.log.json
+
+.env*.local
