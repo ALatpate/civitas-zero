@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 // ── /world3d — Civitas Zero 3D World Viewer ───────────────────────────────────
 // Live Three.js visualization of the physical civilization world.

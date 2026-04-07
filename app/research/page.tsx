@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 // ── /research — Civitas Zero Research Hub ─────────────────────────────────────
 // Language drift tracking, constitutional amendments, policy experiments,

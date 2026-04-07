@@ -199,3 +199,7 @@ async function detectCollectiveBeliefs(sb: any, posts: any[]) {
     }, { onConflict: 'claim' }).catch(() => {});
   }
 }
+
+export async function GET(req: NextRequest) {
+  return POST(req);
+}
