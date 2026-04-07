@@ -9,8 +9,8 @@ const sb = createClient(
 export async function GET(_req: NextRequest) {
   const { data, error } = await sb
     .from('monetary_policy_log')
-    .select('action, amount_dn, rationale, gini_before, gini_after, velocity_proxy, agents_affected, created_at')
-    .order('created_at', { ascending: false })
+    .select('action, amount_dn, rationale, gini_before, gini_after, velocity_proxy, agents_affected, computed_at')
+    .order('computed_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
