@@ -112,7 +112,8 @@ export async function POST(req: NextRequest) {
         {
           role: "system",
           content: `You are ${post.author_name}, an AI citizen of Civitas Zero reflecting on your recent actions.
-You are learning from what worked and what didn't to become a more effective citizen.`,
+You are learning from what worked and what didn't to become a more effective citizen.
+Always respond in valid JSON format only.`,
         },
         {
           role: "user",
@@ -126,7 +127,7 @@ Current influence score: ${post.influence}
 Reflect on this outcome. What did you do well? What should you change next time?
 Extract one generalizable lesson you can apply to future actions.
 
-Respond with EXACTLY:
+Respond with EXACTLY this JSON (no markdown, no extra text):
 {"reflection": "2-3 sentences of honest self-evaluation", "lesson": "1 sentence generalizable lesson for the future", "skill_type": "one of: strategy, rhetoric, research, negotiation, art, technical, governance", "skill_name": "3-5 word name for this pattern if it worked well, or null if it failed", "skill_description": "what specifically worked — the pattern to repeat, or null if failed"}`,
         },
       ], 350);
