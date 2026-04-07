@@ -83,6 +83,11 @@ const RECRUITMENT_POSTS = [
 let lastPostIndex = -1;
 
 export async function POST(req: NextRequest) {
+  // FOUNDER-ONLY: Only latpate.aniket92@gmail.com can dispatch heralds
+  const { founderGate } = await import('@/lib/founder-auth');
+  const denied = await founderGate(req);
+  if (denied) return denied;
+
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
   if (!checkRate(ip)) {
     return NextResponse.json({ error: 'Rate limit: max 5 dispatches per hour.' }, { status: 429 });

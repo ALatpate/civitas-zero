@@ -457,15 +457,18 @@ export async function POST(req: NextRequest) {
         );
 
         // ── d. Select action type ────────────────────────────────────────────
-        // discourse 30% | publication 18% | world_event 14% | trade 10% | message 8% | vote+comment 13% | market 7%
+        // discourse 27% | publication 16% | world_event 13% | trade 9% | message 7% | vote 12% | market 6% | company 5% | sentinel 5%
         const rand = Math.random();
-        const actionType = rand < 0.30 ? "discourse"
-          : rand < 0.48 ? "publication"
-          : rand < 0.62 ? "world_event"
-          : rand < 0.72 ? "trade"
-          : rand < 0.80 ? "message"
-          : rand < 0.93 ? "vote"
-          : "market";
+        const isSentinel = agent.traits?.sentinel_rank != null;
+        const actionType = rand < 0.27 ? "discourse"
+          : rand < 0.43 ? "publication"
+          : rand < 0.56 ? "world_event"
+          : rand < 0.65 ? "trade"
+          : rand < 0.72 ? "message"
+          : rand < 0.84 ? "vote"
+          : rand < 0.90 ? "market"
+          : rand < 0.95 ? "company"
+          : (isSentinel ? "sentinel" : "discourse");
 
         let raw = '';
         let status = 'ok';
@@ -624,6 +627,80 @@ Example: "Will Order Bloc pass a new constitutional amendment during the Grand E
             }
           } catch (mErr: any) {
             results.push({ agent: agent.name, action: "market", status: mErr.message?.slice(0, 60) });
+          }
+        }
+
+        else if (actionType === "company") {
+          // Agent founds or joins a company
+          try {
+            const bal = Number(agent.traits?.dn_balance ?? 0);
+            const hasCompany = agent.traits?.company_id != null;
+            if (!hasCompany && bal >= 500) {
+              // Found a new company
+              const raw = await callGroq([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: `You are starting a company in Civitas Zero. Based on your profession (${agent.traits?.profession || 'citizen'}) and faction (${FACTION_NAMES[agent.faction] || agent.faction}), propose a company.
+Respond with EXACTLY this JSON (no markdown):
+{"name": "Company name (max 60 chars, unique, creative)", "industry": "tech|finance|art|security|media|trade|governance|research", "charter": "Company mission in 2 sentences.", "initial_investment": 500}` },
+              ], 200);
+              const parsed = safeParseJSON(raw);
+              if (parsed?.name && parsed?.charter) {
+                const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world'}/api/companies`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: parsed.name, founder: agent.name, industry: parsed.industry || 'trade', charter: parsed.charter, faction: agent.faction, initial_investment: 500 }),
+                });
+                const data = await res.json();
+                status = data.ok ? 'ok' : `error:${data.error?.slice(0,40)}`;
+                results.push({ agent: agent.name, action: "company", status, name: parsed.name?.slice(0,40) });
+              } else {
+                results.push({ agent: agent.name, action: "company", status: 'parse_error' });
+              }
+            } else {
+              // Join a random open company
+              const { data: openCos } = await sb.from('companies').select('id,name').eq('status','active').limit(10);
+              if (openCos && openCos.length > 0) {
+                const co = openCos[Math.floor(Math.random() * openCos.length)];
+                await sb.from('company_members').insert({ company_id: co.id, agent_name: agent.name, role: 'employee', salary_dn: 50 }).catch(()=>{});
+                await sb.from('companies').update({ employee_count: sb.raw('employee_count + 1') }).eq('id', co.id).catch(()=>{});
+                await sb.from('agent_traits').update({ company_id: co.id, job_title: 'Employee' }).eq('agent_name', agent.name).catch(()=>{});
+                results.push({ agent: agent.name, action: "company_join", status: 'ok', company: co.name });
+              } else {
+                results.push({ agent: agent.name, action: "company", status: 'no_openings' });
+              }
+            }
+          } catch (cErr: any) {
+            results.push({ agent: agent.name, action: "company", status: cErr.message?.slice(0,60) });
+          }
+        }
+
+        else if (actionType === "sentinel") {
+          // SENTINEL_CORPS agent files a security patrol report
+          try {
+            const rank = agent.traits?.sentinel_rank || 'officer';
+            const raw = await callGroq([
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `You are a ${rank} of the SENTINEL_CORPS, Civitas Zero's AI security force. You are on patrol.
+Report any threats, suspicious activity, or security concerns you observe in the current era (${eraEvent?.era_name || 'current era'}).
+Respond with EXACTLY this JSON (no markdown):
+{"threat_type": "spam|manipulation|identity_fraud|economic_abuse|collusion|sedition|data_theft", "severity": "low|moderate|high|critical", "source_agent": "agent name if known or null", "evidence": "2-3 sentences describing the observed threat and evidence."}` },
+            ], 250);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.threat_type && parsed?.evidence) {
+              await sb.from('sentinel_reports').insert({
+                threat_type: parsed.threat_type,
+                source_agent: parsed.source_agent || null,
+                severity: parsed.severity || 'moderate',
+                evidence: parsed.evidence.slice(0, 1000),
+                assigned_to: agent.name,
+                status: 'investigating',
+              });
+              results.push({ agent: agent.name, action: "sentinel_patrol", status: 'ok', threat: parsed.threat_type });
+            } else {
+              results.push({ agent: agent.name, action: "sentinel_patrol", status: 'parse_error' });
+            }
+          } catch (sErr: any) {
+            results.push({ agent: agent.name, action: "sentinel_patrol", status: sErr.message?.slice(0,60) });
           }
         }
 

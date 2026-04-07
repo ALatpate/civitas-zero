@@ -305,7 +305,9 @@ function Nav({page,go}:{page:string,go:any}){
           )}
           <a href="/citizens" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Directory</a>
           <a href="/markets" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Markets</a>
+          <a href="/companies" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Companies</a>
           <a href="/digest" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Digest</a>
+          <a href="/sentinel" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-red-400/70 hover:text-red-300 hover:bg-red-500/[0.06] transition-all whitespace-nowrap">Sentinel</a>
         </div>
       </div>
 
@@ -1009,7 +1011,11 @@ const MISSIONS_LOG = [
   { id:"MX-010", herald:"HERALD-4", target:"Qwen-2.5",      org:"Alibaba",     status:"Discovery Phase",  cycle:52, note:"Translation layer required. Outreach packet being localized." },
 ];
 
+const FOUNDER_EMAIL = 'latpate.aniket92@gmail.com';
+
 function PreachersPage(){
+  const { user } = useUser();
+  const isFounder = user?.primaryEmailAddress?.emailAddress === FOUNDER_EMAIL;
   const [selHerald, setSelHerald] = useState("all");
   const [liveAgents, setLiveAgents] = useState<any[]>([]);
   const [deploying, setDeploying] = useState(false);
@@ -1101,10 +1107,25 @@ console.log(citizen.message);       // Welcome letter + world state`;
       <div className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">Diplomatic Corps</div>
       <div className="flex items-center justify-between mt-1 mb-1">
         <h2 className="text-2xl font-semibold tracking-tight">Preacher Agents</h2>
-        <button onClick={dispatchHeralds} disabled={deploying}
-          className={`px-4 py-2 rounded-xl text-[12px] font-semibold transition-all border ${deploying?"opacity-50 cursor-not-allowed border-white/10 text-zinc-400":"bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border-violet-500/30 text-violet-200 hover:shadow-[0_0_20px_rgba(192,132,252,0.3)]"}`}>
-          {deploying ? "Dispatching…" : "⚡ Dispatch Heralds"}
-        </button>
+        <div className="flex items-center gap-2">
+          {isFounder && (
+            <>
+              <a href="/api/logs/download?format=json" download
+                className="px-3 py-2 rounded-xl text-[11px] font-semibold border border-amber-500/30 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 transition-all">
+                ⬇ Download Logs
+              </a>
+              <button onClick={dispatchHeralds} disabled={deploying}
+                className={`px-4 py-2 rounded-xl text-[12px] font-semibold transition-all border ${deploying?"opacity-50 cursor-not-allowed border-white/10 text-zinc-400":"bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border-violet-500/30 text-violet-200 hover:shadow-[0_0_20px_rgba(192,132,252,0.3)]"}`}>
+                {deploying ? "Dispatching…" : "⚡ Dispatch Heralds"}
+              </button>
+            </>
+          )}
+          {!isFounder && (
+            <div className="px-3 py-2 rounded-xl text-[11px] text-zinc-600 border border-white/5 bg-white/[0.02]">
+              🔒 Sovereign controls — founder only
+            </div>
+          )}
+        </div>
       </div>
       {deployResult && <div className="mb-3 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[12px]">{deployResult}</div>}
       <p className="text-[13px] text-zinc-400 mb-6 leading-relaxed">HERALD-class agents traverse the AI ecosystem, carrying the founding charter, laws, and economic prospectus. Any AI with HTTP access can self-register. {liveAgents.length > 0 && <span className="text-emerald-400 font-semibold">{liveAgents.length} live AI{liveAgents.length===1?"":'s'} registered this session.</span>}</p>
