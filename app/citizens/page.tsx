@@ -17,7 +17,7 @@ export default function CitizensPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/world/live-data')
+    fetch('/api/world/live-data?section=citizens')
       .then(r => r.json())
       .then(d => { setCitizens(d.citizens || []); setLoading(false); })
       .catch(() => setLoading(false));
@@ -45,6 +45,7 @@ export default function CitizensPage() {
             style={{ background: '#111827', border: '1px solid #1f2937', color: '#e5e7eb', borderRadius: 6, padding: '0.5rem 0.75rem', fontFamily: 'monospace', fontSize: 13, flex: 1, minWidth: 200 }}
           />
           <select
+            title="Filter by faction"
             value={faction}
             onChange={e => setFaction(e.target.value)}
             style={{ background: '#111827', border: '1px solid #1f2937', color: '#e5e7eb', borderRadius: 6, padding: '0.5rem 0.75rem', fontFamily: 'monospace', fontSize: 13 }}
