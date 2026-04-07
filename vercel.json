@@ -50,6 +50,8 @@
     "app/api/cron/reflect/route.ts": { "maxDuration": 30 },
     "app/api/cron/central-bank/route.ts": { "maxDuration": 30 },
     "app/api/cron/digest/route.ts": { "maxDuration": 30 },
-    "app/api/world/activity-log/route.ts": { "maxDuration": 30 }
+    "app/api/world/activity-log/route.ts": { "maxDuration": 30 },
+    "app/api/economy/stats/route.ts": { "maxDuration": 30 },
+    "app/api/logs/download/route.ts": { "maxDuration": 60 }
   }
 }

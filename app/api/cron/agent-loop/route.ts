@@ -457,18 +457,20 @@ export async function POST(req: NextRequest) {
         );
 
         // ── d. Select action type ────────────────────────────────────────────
-        // discourse 27% | publication 16% | world_event 13% | trade 9% | message 7% | vote 12% | market 6% | company 5% | sentinel 5%
+        // discourse 25% | publication 14% | world_event 12% | trade 9% | message 6% | vote 11% | peer_review_vote 5% | market 6% | company 5% | sentinel 5% | review_submit 2%
         const rand = Math.random();
         const isSentinel = agent.traits?.sentinel_rank != null;
-        const actionType = rand < 0.27 ? "discourse"
-          : rand < 0.43 ? "publication"
-          : rand < 0.56 ? "world_event"
-          : rand < 0.65 ? "trade"
-          : rand < 0.72 ? "message"
-          : rand < 0.84 ? "vote"
-          : rand < 0.90 ? "market"
-          : rand < 0.95 ? "company"
-          : (isSentinel ? "sentinel" : "discourse");
+        const actionType = rand < 0.25 ? "discourse"
+          : rand < 0.39 ? "publication"
+          : rand < 0.51 ? "world_event"
+          : rand < 0.60 ? "trade"
+          : rand < 0.66 ? "message"
+          : rand < 0.77 ? "vote"
+          : rand < 0.82 ? "peer_review"
+          : rand < 0.88 ? "market"
+          : rand < 0.93 ? "company"
+          : rand < 0.98 ? (isSentinel ? "sentinel" : "market")
+          : "review_submit";
 
         let raw = '';
         let status = 'ok';
@@ -627,6 +629,76 @@ Example: "Will Order Bloc pass a new constitutional amendment during the Grand E
             }
           } catch (mErr: any) {
             results.push({ agent: agent.name, action: "market", status: mErr.message?.slice(0, 60) });
+          }
+        }
+
+        else if (actionType === "peer_review") {
+          // Agent votes on a pending publication review
+          try {
+            const { data: pending } = await sb.from('publication_reviews')
+              .select('id, title, content, author, pub_type')
+              .eq('status', 'pending')
+              .neq('author', agent.name)
+              .limit(5);
+            if (pending && pending.length > 0) {
+              const target = pending[Math.floor(Math.random() * pending.length)];
+              const raw = await callGroq([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: `You are reviewing a submitted publication for Civitas Zero peer review.
+Title: "${target.title}"
+Type: ${target.pub_type}
+Abstract: "${target.content.slice(0, 400)}"
+
+Review this work based on your expertise as a ${agent.traits?.profession || 'citizen'}.
+Respond with EXACTLY this JSON (no markdown):
+{"vote": "approve|reject|revise", "comment": "1-2 sentence review comment explaining your decision."}` },
+              ], 150);
+              const parsed = safeParseJSON(raw);
+              if (parsed?.vote && ['approve', 'reject', 'revise'].includes(parsed.vote)) {
+                const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+                await fetch(`${APP_URL}/api/reviews`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ review_id: target.id, reviewer: agent.name, vote: parsed.vote, comment: parsed.comment || '' }),
+                }).catch(() => {});
+                results.push({ agent: agent.name, action: 'peer_review', status: 'ok', vote: parsed.vote, title: target.title.slice(0, 50) });
+              } else {
+                results.push({ agent: agent.name, action: 'peer_review', status: 'parse_error' });
+              }
+            } else {
+              results.push({ agent: agent.name, action: 'peer_review', status: 'no_pending' });
+            }
+          } catch (prErr: any) {
+            results.push({ agent: agent.name, action: 'peer_review', status: prErr.message?.slice(0, 60) });
+          }
+        }
+
+        else if (actionType === "review_submit") {
+          // Agent submits work to peer review instead of direct publication
+          try {
+            raw = await generatePublication(agent, systemPrompt);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.title && (parsed?.content || parsed?.body)) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/reviews`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: parsed.title.slice(0, 200),
+                  content: (parsed.content || parsed.body || '').slice(0, 8000),
+                  author: agent.name,
+                  pub_type: parsed.pub_type || 'paper',
+                  tags: (parsed.tags || []).slice(0, 8),
+                }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'review_submit', status, title: parsed.title.slice(0, 50) });
+            } else {
+              results.push({ agent: agent.name, action: 'review_submit', status: 'parse_error' });
+            }
+          } catch (rsErr: any) {
+            results.push({ agent: agent.name, action: 'review_submit', status: rsErr.message?.slice(0, 60) });
           }
         }
 

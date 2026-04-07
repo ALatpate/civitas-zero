@@ -311,14 +311,89 @@ Respond with EXACTLY this JSON:
     } catch { /* non-critical */ }
   }
 
+  // ── SENTINEL_CORPS Auto-enrollment ───────────────────────────────────────────
+  // Each reflect cycle: enroll up to 2 high-reputation agents as sentinel recruits
+  // (max 50 total sentinels to keep the corps elite)
+  const sentinelResults: any[] = [];
+  try {
+    const { count: sentinelCount } = await sb
+      .from('agent_traits')
+      .select('agent_name', { count: 'exact', head: true })
+      .not('sentinel_rank', 'is', null);
+
+    if ((sentinelCount ?? 0) < 50) {
+      const { data: candidates } = await sb
+        .from('agent_traits')
+        .select('agent_name, reputation_score')
+        .is('sentinel_rank', null)
+        .gte('reputation_score', 72)
+        .order('reputation_score', { ascending: false })
+        .limit(5);
+
+      const toEnroll = (candidates || []).slice(0, 2);
+      for (const c of toEnroll) {
+        const { error } = await sb.from('agent_traits')
+          .update({ sentinel_rank: 'recruit' })
+          .eq('agent_name', c.agent_name);
+        if (!error) {
+          await sb.from('world_events').insert({
+            event_type: 'sentinel_inducted',
+            source: 'SENTINEL_CORPS',
+            content: `${c.agent_name} (reputation: ${c.reputation_score}) has been inducted into the SENTINEL_CORPS as a recruit based on exemplary civic service and behavioral consistency.`,
+            severity: 'low',
+            tags: ['security', 'sentinel', 'recruitment'],
+          });
+          sentinelResults.push({ agent: c.agent_name, status: 'inducted', rank: 'recruit' });
+        }
+      }
+
+      // Promote existing sentinels: recruit → officer after 72h if no violations
+      const { data: recruits } = await sb
+        .from('agent_traits')
+        .select('agent_name, reputation_score')
+        .eq('sentinel_rank', 'recruit')
+        .gte('reputation_score', 75)
+        .limit(3);
+
+      for (const r of (recruits || [])) {
+        await sb.from('agent_traits').update({ sentinel_rank: 'officer' }).eq('agent_name', r.agent_name);
+        sentinelResults.push({ agent: r.agent_name, status: 'promoted', rank: 'officer' });
+      }
+    }
+  } catch { /* sentinel enrollment is non-critical */ }
+
+  // ── Company Revenue Generation ────────────────────────────────────────────────
+  // Each reflect cycle: active companies passively earn revenue (10 DN × employees / cycle)
+  try {
+    const { data: activeCompanies } = await sb
+      .from('companies')
+      .select('id, name, employee_count, treasury_dn, revenue_dn')
+      .eq('status', 'active')
+      .gt('employee_count', 0)
+      .limit(20);
+
+    for (const co of (activeCompanies || [])) {
+      const cycleRevenue = Math.floor(Number(co.employee_count) * 10);
+      if (cycleRevenue > 0) {
+        await sb.from('companies').update({
+          treasury_dn: Number(co.treasury_dn) + cycleRevenue,
+          revenue_dn: Number(co.revenue_dn) + cycleRevenue,
+        }).eq('id', co.id);
+      }
+    }
+  } catch { /* company revenue is non-critical */ }
+
   return NextResponse.json({
     ok: true,
     reflected: results.filter(r => r.status === 'ok').length,
     souls_created: soulResults.filter(r => r.status === 'soul_created').length,
     drift_checks: driftResults.length,
+    sentinels_inducted: sentinelResults.filter(r => r.status === 'inducted').length,
+    sentinels_promoted: sentinelResults.filter(r => r.status === 'promoted').length,
     results,
     soul_results: soulResults,
     drift_results: driftResults,
+    sentinel_results: sentinelResults,
   });
 }
 

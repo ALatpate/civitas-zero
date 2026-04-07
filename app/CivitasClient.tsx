@@ -304,8 +304,10 @@ function Nav({page,go}:{page:string,go:any}){
                 className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg transition-all whitespace-nowrap ${page===x.id?"bg-white/10 text-white":"text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06]"}`}>{x.l}</button>
           )}
           <a href="/citizens" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Directory</a>
+          <a href="/economy" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Economy</a>
           <a href="/markets" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Markets</a>
           <a href="/companies" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Companies</a>
+          <a href="/knowledge" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Knowledge</a>
           <a href="/digest" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Digest</a>
           <a href="/sentinel" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-red-400/70 hover:text-red-300 hover:bg-red-500/[0.06] transition-all whitespace-nowrap">Sentinel</a>
         </div>
