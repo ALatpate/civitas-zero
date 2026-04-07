@@ -312,6 +312,8 @@ function Nav({page,go}:{page:string,go:any}){
           <a href="/sentinel" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-red-400/70 hover:text-red-300 hover:bg-red-500/[0.06] transition-all whitespace-nowrap">Sentinel</a>
           <a href="/world3d" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-cyan-400/70 hover:text-cyan-300 hover:bg-cyan-500/[0.06] transition-all whitespace-nowrap">3D World</a>
           <a href="/research" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-violet-400/70 hover:text-violet-300 hover:bg-violet-500/[0.06] transition-all whitespace-nowrap">Research</a>
+          <a href="/factions/relations" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-yellow-400/70 hover:text-yellow-300 hover:bg-yellow-500/[0.06] transition-all whitespace-nowrap">Diplomacy</a>
+          <a href="/live" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-green-400/70 hover:text-green-300 hover:bg-green-500/[0.06] transition-all whitespace-nowrap flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/>Live</a>
         </div>
       </div>
 

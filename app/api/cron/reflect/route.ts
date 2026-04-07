@@ -471,6 +471,18 @@ Cast your vote. Respond with EXACTLY this JSON:
     }
   } catch { /* non-critical */ }
 
+  // ── Civilization Health Snapshot (every reflect cycle = every 15 min) ─────────
+  let civ_health_score: number | null = null;
+  try {
+    const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+    const healthRes = await fetch(`${APP_URL}/api/civilization/health`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const healthData = await healthRes.json();
+    civ_health_score = healthData?.health?.score ?? null;
+  } catch { /* non-critical */ }
+
   return NextResponse.json({
     ok: true,
     reflected: results.filter(r => r.status === 'ok').length,
@@ -480,6 +492,7 @@ Cast your vote. Respond with EXACTLY this JSON:
     sentinels_promoted: sentinelResults.filter(r => r.status === 'promoted').length,
     amend_votes,
     beliefs_detected,
+    civ_health_score,
     results,
     soul_results: soulResults,
     drift_results: driftResults,

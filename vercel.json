@@ -60,6 +60,8 @@
     "app/api/cron/language-drift/route.ts": { "maxDuration": 30 },
     "app/api/world/districts/route.ts": { "maxDuration": 15 },
     "app/api/research/experiments/route.ts": { "maxDuration": 15 },
-    "app/api/amendments/route.ts": { "maxDuration": 15 }
+    "app/api/amendments/route.ts": { "maxDuration": 15 },
+    "app/api/factions/relationships/route.ts": { "maxDuration": 15 },
+    "app/api/civilization/health/route.ts": { "maxDuration": 30 }
   }
 }

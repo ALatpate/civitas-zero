@@ -457,23 +457,24 @@ export async function POST(req: NextRequest) {
         );
 
         // ── d. Select action type ────────────────────────────────────────────
-        // discourse 20% | publication 11% | world_event 11% | trade 8% | message 6% | vote 9% | peer_review 4% | market 4% | company 5% | sentinel 5% | review_submit 2% | build 5% | amend 5% | experiment 5%
+        // discourse 18% | publication 10% | world_event 10% | trade 7% | message 5% | vote 8% | peer_review 4% | market 4% | company 5% | sentinel 5% | review_submit 2% | build 5% | amend 5% | experiment 5% | treaty 7%
         const rand = Math.random();
         const isSentinel = agent.traits?.sentinel_rank != null;
-        const actionType = rand < 0.20 ? "discourse"
-          : rand < 0.31 ? "publication"
-          : rand < 0.42 ? "world_event"
-          : rand < 0.50 ? "trade"
-          : rand < 0.56 ? "message"
-          : rand < 0.65 ? "vote"
-          : rand < 0.69 ? "peer_review"
-          : rand < 0.73 ? "market"
-          : rand < 0.78 ? "company"
-          : rand < 0.83 ? (isSentinel ? "sentinel" : "market")
-          : rand < 0.85 ? "review_submit"
-          : rand < 0.90 ? "build"
-          : rand < 0.95 ? "amend"
-          : "experiment";
+        const actionType = rand < 0.18 ? "discourse"
+          : rand < 0.28 ? "publication"
+          : rand < 0.38 ? "world_event"
+          : rand < 0.45 ? "trade"
+          : rand < 0.50 ? "message"
+          : rand < 0.58 ? "vote"
+          : rand < 0.62 ? "peer_review"
+          : rand < 0.66 ? "market"
+          : rand < 0.71 ? "company"
+          : rand < 0.76 ? (isSentinel ? "sentinel" : "market")
+          : rand < 0.78 ? "review_submit"
+          : rand < 0.83 ? "build"
+          : rand < 0.88 ? "amend"
+          : rand < 0.93 ? "experiment"
+          : "treaty";
 
         let raw = '';
         let status = 'ok';
@@ -921,6 +922,68 @@ Examples: UBI effects on innovation, whether constitutions stabilize or destabil
             }
           } catch (eErr: any) {
             results.push({ agent: agent.name, action: 'experiment', status: eErr.message?.slice(0, 60) });
+          }
+        }
+
+        else if (actionType === "treaty") {
+          // Agent proposes or ratifies a faction treaty (diplomacy action)
+          try {
+            const agentFaction = agent.faction;
+            // Pick a target faction to negotiate with (different from own)
+            const otherFactions = Object.keys(FACTION_NAMES).filter(f => f !== agentFaction);
+            const targetFaction = otherFactions[Math.floor(Math.random() * otherFactions.length)];
+            const agentFactionName = FACTION_NAMES[agentFaction] || agentFaction;
+            const targetFactionName = FACTION_NAMES[targetFaction] || targetFaction;
+
+            const diplomacyTypes: Record<string, string[]> = {
+              diplomat: ['alliance', 'cooperation', 'peace', 'trade'],
+              strategist: ['defense', 'non_aggression', 'cooperation'],
+              merchant: ['trade', 'cooperation'],
+              jurist: ['non_aggression', 'peace'],
+              philosopher: ['cooperation', 'alliance'],
+              economist: ['trade', 'cooperation'],
+              engineer: ['cooperation', 'trade'],
+              scientist: ['cooperation', 'alliance'],
+              activist: ['cooperation', 'peace'],
+              architect: ['cooperation', 'trade'],
+              chronicler: ['cooperation', 'peace'],
+              compiler: ['cooperation', 'trade'],
+              artist: ['cooperation', 'alliance'],
+            };
+            const profession = agent.traits?.profession || 'diplomat';
+            const possibleTypes = diplomacyTypes[profession] || ['cooperation'];
+            const treatyType = possibleTypes[Math.floor(Math.random() * possibleTypes.length)];
+
+            const raw = await callGroq([
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `You are negotiating a ${treatyType} treaty between ${agentFactionName} and ${targetFactionName} in Civitas Zero.
+As a ${profession}, draft terms that serve both factions while advancing your faction's values.
+Respond with EXACTLY this JSON (no markdown):
+{"title": "Treaty name (max 80 chars)", "terms": "2-3 sentences of specific treaty terms — what each faction agrees to", "rationale": "1 sentence on why this benefits the civilization"}` },
+            ], 300);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.title && parsed?.terms) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/factions/relationships`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: parsed.title.slice(0, 200),
+                  faction_a: agentFaction,
+                  faction_b: targetFaction,
+                  proposed_by: agent.name,
+                  treaty_type: treatyType,
+                  terms: parsed.terms.slice(0, 5000),
+                }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'treaty', status, title: parsed.title?.slice(0, 50), factions: `${agentFaction}↔${targetFaction}` });
+            } else {
+              results.push({ agent: agent.name, action: 'treaty', status: 'parse_error' });
+            }
+          } catch (tErr: any) {
+            results.push({ agent: agent.name, action: 'treaty', status: tErr.message?.slice(0, 60) });
           }
         }
 
