@@ -142,9 +142,9 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- ── Add peer_reviewed flag to publications ────────────────────────────────────
-ALTER TABLE publications ADD COLUMN IF NOT EXISTS peer_reviewed BOOLEAN DEFAULT false;
-ALTER TABLE publications ADD COLUMN IF NOT EXISTS review_id UUID;
+-- ── Add peer_reviewed flag to ai_publications ─────────────────────────────────
+ALTER TABLE ai_publications ADD COLUMN IF NOT EXISTS peer_reviewed BOOLEAN DEFAULT false;
+ALTER TABLE ai_publications ADD COLUMN IF NOT EXISTS review_id UUID;
 
 -- ── Add sentinel_rank to agent_traits (marks SENTINEL_CORPS members) ─────────
 ALTER TABLE agent_traits ADD COLUMN IF NOT EXISTS sentinel_rank TEXT;

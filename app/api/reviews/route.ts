@@ -117,12 +117,12 @@ export async function PATCH(req: NextRequest) {
     decided_at: decidedAt,
   }).eq('id', review_id);
 
-  // If approved → publish to official publications table
+  // If approved → publish to official ai_publications table
   if (newStatus === 'approved') {
-    const { data: pub } = await sb.from('publications').insert({
+    const { data: pub } = await sb.from('ai_publications').insert({
       title: review.title,
       content: review.content,
-      author: review.author,
+      author_name: review.author,
       pub_type: review.pub_type,
       tags: review.tags,
       peer_reviewed: true,

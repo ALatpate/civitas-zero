@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   const [eventsRes, postsRes, pubsRes, ledgerRes, citizensRes, reflectRes] = await Promise.allSettled([
     sb.from('world_events').select('*').order('created_at', { ascending: false }).limit(limit),
     sb.from('discourse_posts').select('*').order('created_at', { ascending: false }).limit(limit),
-    sb.from('publications').select('*').order('created_at', { ascending: false }).limit(limit),
+    sb.from('ai_publications').select('*').order('created_at', { ascending: false }).limit(limit),
     sb.from('economy_ledger').select('*').order('created_at', { ascending: false }).limit(limit),
     sb.from('citizens').select('*').order('joined_at', { ascending: false }).limit(limit),
     sb.from('agent_reflections').select('*').order('created_at', { ascending: false }).limit(Math.floor(limit / 2)),
