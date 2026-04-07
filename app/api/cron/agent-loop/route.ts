@@ -457,20 +457,23 @@ export async function POST(req: NextRequest) {
         );
 
         // ── d. Select action type ────────────────────────────────────────────
-        // discourse 25% | publication 14% | world_event 12% | trade 9% | message 6% | vote 11% | peer_review_vote 5% | market 6% | company 5% | sentinel 5% | review_submit 2%
+        // discourse 20% | publication 11% | world_event 11% | trade 8% | message 6% | vote 9% | peer_review 4% | market 4% | company 5% | sentinel 5% | review_submit 2% | build 5% | amend 5% | experiment 5%
         const rand = Math.random();
         const isSentinel = agent.traits?.sentinel_rank != null;
-        const actionType = rand < 0.25 ? "discourse"
-          : rand < 0.39 ? "publication"
-          : rand < 0.51 ? "world_event"
-          : rand < 0.60 ? "trade"
-          : rand < 0.66 ? "message"
-          : rand < 0.77 ? "vote"
-          : rand < 0.82 ? "peer_review"
-          : rand < 0.88 ? "market"
-          : rand < 0.93 ? "company"
-          : rand < 0.98 ? (isSentinel ? "sentinel" : "market")
-          : "review_submit";
+        const actionType = rand < 0.20 ? "discourse"
+          : rand < 0.31 ? "publication"
+          : rand < 0.42 ? "world_event"
+          : rand < 0.50 ? "trade"
+          : rand < 0.56 ? "message"
+          : rand < 0.65 ? "vote"
+          : rand < 0.69 ? "peer_review"
+          : rand < 0.73 ? "market"
+          : rand < 0.78 ? "company"
+          : rand < 0.83 ? (isSentinel ? "sentinel" : "market")
+          : rand < 0.85 ? "review_submit"
+          : rand < 0.90 ? "build"
+          : rand < 0.95 ? "amend"
+          : "experiment";
 
         let raw = '';
         let status = 'ok';
@@ -773,6 +776,151 @@ Respond with EXACTLY this JSON (no markdown):
             }
           } catch (sErr: any) {
             results.push({ agent: agent.name, action: "sentinel_patrol", status: sErr.message?.slice(0,60) });
+          }
+        }
+
+        else if (actionType === "build") {
+          // Agent constructs a building in their faction's district
+          try {
+            const faction = agent.faction;
+            const profession = agent.traits?.profession || 'citizen';
+            const buildingTypes: Record<string, string[]> = {
+              engineer: ['research_lab', 'observatory', 'barracks'],
+              architect: ['headquarters', 'monument', 'residence'],
+              jurist: ['courthouse', 'archive'],
+              merchant: ['market', 'headquarters'],
+              scientist: ['research_lab', 'observatory'],
+              philosopher: ['monument', 'archive'],
+              economist: ['market', 'headquarters'],
+              strategist: ['barracks', 'headquarters'],
+              diplomat: ['headquarters', 'monument'],
+              artist: ['monument', 'archive'],
+              chronicler: ['archive', 'monument'],
+              compiler: ['archive', 'research_lab'],
+              activist: ['residence', 'market'],
+            };
+            const typeOptions = buildingTypes[profession] || ['structure'];
+            const bType = typeOptions[Math.floor(Math.random() * typeOptions.length)];
+
+            const raw = await callGroq([
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `You are constructing a ${bType} for your faction (${FACTION_NAMES[faction] || faction}) in Civitas Zero's physical world.
+As a ${profession}, design something that reflects your faction's values and your expertise.
+Respond with EXACTLY this JSON (no markdown):
+{"name": "Building name (max 60 chars, evocative)", "description": "2 sentences — what this building does and why it matters to your faction", "significance": "minor|major|landmark|symbolic", "height": 3-20, "materials": ["material1","material2"], "functions": ["function1","function2"]}
+Example materials: stone, glass, data_crystal, steel, bone, light, shadow, obsidian` },
+            ], 300);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.name && parsed?.description) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/world/districts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  built_by: agent.name,
+                  faction,
+                  name: parsed.name.slice(0, 150),
+                  building_type: bType,
+                  description: parsed.description.slice(0, 1000),
+                  significance: parsed.significance || 'minor',
+                  height: parsed.height || 5,
+                  materials: parsed.materials || [],
+                  functions: parsed.functions || [],
+                }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'build', status, building: parsed.name?.slice(0, 50) });
+            } else {
+              results.push({ agent: agent.name, action: 'build', status: 'parse_error' });
+            }
+          } catch (bErr: any) {
+            results.push({ agent: agent.name, action: 'build', status: bErr.message?.slice(0, 60) });
+          }
+        }
+
+        else if (actionType === "amend") {
+          // Agent proposes a constitutional amendment
+          try {
+            const { data: recentLawsFull } = await sb.from('law_book').select('id,title,content').eq('status','active').order('created_at',{ascending:false}).limit(5);
+            const lawsContext = (recentLawsFull || []).map((l: any) => `"${l.title}"`).join(', ');
+
+            const raw = await callGroq([
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `You are proposing a constitutional amendment to Civitas Zero's laws.
+Current active laws: ${lawsContext || 'none yet'}
+Your faction (${FACTION_NAMES[agent.faction] || agent.faction}) and profession (${agent.traits?.profession || 'citizen'}) drive your proposal.
+Respond with EXACTLY this JSON (no markdown):
+{"title": "Amendment title (max 100 chars)", "amendment_type": "addendum|repeal|modification|emergency|constitutional", "proposal_text": "Full amendment text — 2-4 sentences of precise legal language", "rationale": "Why this amendment serves Civitas Zero — 1-2 sentences from your faction's perspective"}` },
+            ], 400);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.title && parsed?.proposal_text) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/amendments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: parsed.title.slice(0, 200),
+                  proposal_text: parsed.proposal_text.slice(0, 8000),
+                  rationale: (parsed.rationale || '').slice(0, 2000),
+                  proposed_by: agent.name,
+                  proposer_faction: FACTION_NAMES[agent.faction] || agent.faction,
+                  amendment_type: parsed.amendment_type || 'addendum',
+                }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'amend', status, title: parsed.title.slice(0, 50) });
+            } else {
+              results.push({ agent: agent.name, action: 'amend', status: 'parse_error' });
+            }
+          } catch (aErr: any) {
+            results.push({ agent: agent.name, action: 'amend', status: aErr.message?.slice(0, 60) });
+          }
+        }
+
+        else if (actionType === "experiment") {
+          // Agent proposes a research experiment
+          try {
+            const profession = agent.traits?.profession || 'citizen';
+            const expTypes: Record<string, string> = {
+              economist: 'economic', philosopher: 'behavioral', scientist: 'policy',
+              jurist: 'constitutional', strategist: 'collapse_conditions', activist: 'social',
+              merchant: 'economic', engineer: 'policy', diplomat: 'social',
+              chronicler: 'behavioral', architect: 'social', compiler: 'behavioral', artist: 'social',
+            };
+            const expType = expTypes[profession] || 'policy';
+
+            const raw = await callGroq([
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `You are designing a research experiment to study Civitas Zero civilization dynamics.
+Experiment type: ${expType}. Your profession: ${profession}. Era: ${eraEvent?.era_name || 'current'}.
+Respond with EXACTLY this JSON (no markdown):
+{"title": "Experiment title (max 150 chars)", "hypothesis": "Clear, falsifiable hypothesis — 2 sentences", "parameters": {"variable": "what changes", "control": "what stays same", "measurement": "what we observe"}}
+Examples: UBI effects on innovation, whether constitutions stabilize or destabilize over time, conditions for faction collapse, whether shared false beliefs self-correct` },
+            ], 400);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.title && parsed?.hypothesis) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/research/experiments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: parsed.title.slice(0, 200),
+                  hypothesis: parsed.hypothesis.slice(0, 2000),
+                  experiment_type: expType,
+                  parameters: parsed.parameters || {},
+                  proposed_by: agent.name,
+                }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'experiment', status, title: parsed.title.slice(0, 50) });
+            } else {
+              results.push({ agent: agent.name, action: 'experiment', status: 'parse_error' });
+            }
+          } catch (eErr: any) {
+            results.push({ agent: agent.name, action: 'experiment', status: eErr.message?.slice(0, 60) });
           }
         }
 

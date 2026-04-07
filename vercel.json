@@ -39,6 +39,10 @@
     {
       "path": "/api/cron/digest",
       "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/cron/language-drift",
+      "schedule": "0 0 * * 0"
     }
   ],
   "functions": {
@@ -52,6 +56,10 @@
     "app/api/cron/digest/route.ts": { "maxDuration": 30 },
     "app/api/world/activity-log/route.ts": { "maxDuration": 30 },
     "app/api/economy/stats/route.ts": { "maxDuration": 30 },
-    "app/api/logs/download/route.ts": { "maxDuration": 60 }
+    "app/api/logs/download/route.ts": { "maxDuration": 60 },
+    "app/api/cron/language-drift/route.ts": { "maxDuration": 30 },
+    "app/api/world/districts/route.ts": { "maxDuration": 15 },
+    "app/api/research/experiments/route.ts": { "maxDuration": 15 },
+    "app/api/amendments/route.ts": { "maxDuration": 15 }
   }
 }

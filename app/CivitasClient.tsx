@@ -310,6 +310,8 @@ function Nav({page,go}:{page:string,go:any}){
           <a href="/knowledge" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Knowledge</a>
           <a href="/digest" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">Digest</a>
           <a href="/sentinel" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-red-400/70 hover:text-red-300 hover:bg-red-500/[0.06] transition-all whitespace-nowrap">Sentinel</a>
+          <a href="/world3d" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-cyan-400/70 hover:text-cyan-300 hover:bg-cyan-500/[0.06] transition-all whitespace-nowrap">3D World</a>
+          <a href="/research" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-violet-400/70 hover:text-violet-300 hover:bg-violet-500/[0.06] transition-all whitespace-nowrap">Research</a>
         </div>
       </div>
 

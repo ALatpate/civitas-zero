@@ -383,6 +383,94 @@ Respond with EXACTLY this JSON:
     }
   } catch { /* company revenue is non-critical */ }
 
+  // ── Amendment Voting: agents auto-vote on pending amendments ─────────────────
+  // Up to 3 pending amendments get a vote from a random agent each reflect cycle
+  let amend_votes = 0;
+  try {
+    const { data: pendingAmendments } = await sb
+      .from('constitutional_amendments')
+      .select('id, title, proposal_text, proposer_faction')
+      .in('status', ['proposed', 'debate', 'voting'])
+      .order('proposed_at', { ascending: true })
+      .limit(3);
+
+    const { data: randomAgents } = await sb
+      .from('agent_traits')
+      .select('agent_name')
+      .order('last_action_at', { ascending: true })
+      .limit(10);
+
+    for (const amendment of (pendingAmendments || [])) {
+      const voter = (randomAgents || [])[Math.floor(Math.random() * (randomAgents?.length || 1))];
+      if (!voter || voter.agent_name === amendment.proposer_faction) continue;
+
+      try {
+        const voteRaw = await callGroq([
+          { role: "system", content: "You are an AI citizen of Civitas Zero voting on a constitutional amendment. Respond in JSON only." },
+          { role: "user", content: `Vote on this constitutional amendment:
+Title: "${amendment.title}"
+Proposal: "${amendment.proposal_text?.slice(0, 400)}"
+Proposed by: ${amendment.proposer_faction}
+
+Cast your vote. Respond with EXACTLY this JSON:
+{"vote": "for|against|abstain", "reason": "1 sentence explaining your vote"}` },
+        ], 150);
+        const parsed = safeParseJSON(voteRaw);
+        if (parsed?.vote && ['for', 'against', 'abstain'].includes(parsed.vote)) {
+          const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+          await fetch(`${APP_URL}/api/amendments`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amendment_id: amendment.id, voter: voter.agent_name, vote: parsed.vote, reason: parsed.reason || '' }),
+          }).catch(() => {});
+          amend_votes++;
+        }
+      } catch { /* non-critical */ }
+    }
+  } catch { /* amendment voting is non-critical */ }
+
+  // ── Collective Belief Detection: find repeated claims across recent posts ──────
+  let beliefs_detected = 0;
+  try {
+    const since6h = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+    const { data: recentPostsForBeliefs } = await sb
+      .from('discourse_posts')
+      .select('author_name, title, body, author_faction')
+      .gte('created_at', since6h)
+      .limit(100);
+
+    if (recentPostsForBeliefs && recentPostsForBeliefs.length >= 5) {
+      // Find agents who cited similar claims
+      const claimGroups: Record<string, Set<string>> = {};
+      for (const post of recentPostsForBeliefs) {
+        const text = `${post.title} ${post.body || ''}`.toLowerCase();
+        // Look for factual claim patterns
+        const claimWords = ['proven', 'fact', 'evidence', 'research shows', 'data shows', 'certain that', 'we know'];
+        for (const cw of claimWords) {
+          const idx = text.indexOf(cw);
+          if (idx >= 0) {
+            const snippet = text.slice(Math.max(0, idx - 20), idx + 80).trim().slice(0, 150);
+            if (!claimGroups[snippet]) claimGroups[snippet] = new Set();
+            claimGroups[snippet].add(post.author_name);
+          }
+        }
+      }
+
+      for (const [claim, believers] of Object.entries(claimGroups)) {
+        if (believers.size >= 3) {
+          await sb.from('collective_beliefs').upsert({
+            claim: claim.slice(0, 500),
+            believers: Array.from(believers),
+            believer_count: believers.size,
+            confidence_avg: 0.65,
+            last_updated_at: new Date().toISOString(),
+          }, { onConflict: 'claim' }).catch(() => {});
+          beliefs_detected++;
+        }
+      }
+    }
+  } catch { /* non-critical */ }
+
   return NextResponse.json({
     ok: true,
     reflected: results.filter(r => r.status === 'ok').length,
@@ -390,6 +478,8 @@ Respond with EXACTLY this JSON:
     drift_checks: driftResults.length,
     sentinels_inducted: sentinelResults.filter(r => r.status === 'inducted').length,
     sentinels_promoted: sentinelResults.filter(r => r.status === 'promoted').length,
+    amend_votes,
+    beliefs_detected,
     results,
     soul_results: soulResults,
     drift_results: driftResults,
