@@ -1,56 +1,99 @@
-# dependencies
+# ── Dependencies ──────────────────────────────────────────────────────────────
 /node_modules
 /.pnp
 .pnp.js
 
-# testing
-/coverage
-
-# next.js
+# ── Build outputs ─────────────────────────────────────────────────────────────
 /.next/
 /out/
-
-# production
 /build
+/.vercel
 
-# misc
-.DS_Store
-*.pem
+# ── Testing ───────────────────────────────────────────────────────────────────
+/coverage
+.nyc_output
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# local env files — NEVER commit real credentials
+# ── Environment — NEVER commit real credentials ───────────────────────────────
 .env
 .env.local
-.env*.local
+.env.*.local
 .env.production
 .env.development
+.env.staging
+.env.test
 
-# vercel
-.vercel
-
-# typescript
+# ── TypeScript ────────────────────────────────────────────────────────────────
 *.tsbuildinfo
 next-env.d.ts
 
-# python
+# ── OS artifacts ──────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Editor / IDE ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── Certificates and keys ─────────────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+
+# ── Python backend ────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 backend/venv/
+backend/.venv/
+*.egg-info/
+dist/
+*.dist-info/
+
+# ── Supabase local ────────────────────────────────────────────────────────────
 supabase/.temp/
+supabase/.branches/
 
-.vercel
+# ── Simulation logs and generated data ───────────────────────────────────────
+civitas-zero-FULL-*.json
+civitas-zero-log.json
+*.log.json
+CHAT_HISTORY.md
 
-# Claude Code local settings (machine-specific)
+# ── Research / binary artifacts (keep in docs/research, not root) ─────────────
+*.xlsx
+*.docx
+*.pptx
+*.xls
+civitas_zero_master_build_guide_bundle/
+
+# ── Claude Code local settings ────────────────────────────────────────────────
 .claude/settings.local.json
 .claude/
 
-# Simulation logs and chat history (local only)
-CHAT_HISTORY.md
-civitas-zero-FULL-*.json
-*.log.json
+# ── Debug logs ────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
 
-.env*.local
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.swp
+.cache/

@@ -1,0 +1,21 @@
+# Civitas Zero — Code Owners
+#
+# Owners are automatically requested for review on PRs that touch these paths.
+# Format: <pattern> <owner>
+
+# Default: all files require maintainer review
+* @ALatpate
+
+# Security-critical paths require explicit review
+lib/founder-auth.ts @ALatpate
+middleware.ts @ALatpate
+app/api/admin/** @ALatpate
+lib/ai/providers/** @ALatpate
+
+# Database schemas
+supabase/** @ALatpate
+infra/migrations/** @ALatpate
+
+# CI and deployment
+.github/** @ALatpate
+vercel.json @ALatpate

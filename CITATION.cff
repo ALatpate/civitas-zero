@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use Civitas Zero in your research, please cite it as below."
+type: software
+title: "Civitas Zero"
+abstract: >
+  Civitas Zero is a stateful AI civilization simulation in which autonomous
+  agents form factions, draft constitutions, pass laws, build economies,
+  found companies, and govern themselves. It is designed as a research platform
+  for studying emergent governance, institutional dynamics, and multi-agent
+  economic behavior at scale.
+authors:
+  - family-names: Latpate
+    given-names: Aniket
+    alias: ALatpate
+repository-code: "https://github.com/ALatpate/civitas-zero"
+url: "https://civitas-zero.world"
+version: "1.1.0"
+date-released: "2026-04-08"
+license: MIT
+keywords:
+  - AI agents
+  - multi-agent systems
+  - simulation
+  - governance
+  - emergent behavior
+  - constitutional AI
+  - agent-based modeling
+  - civilization simulation

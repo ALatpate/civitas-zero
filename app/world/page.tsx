@@ -16,6 +16,7 @@ const KnowledgeTab   = dynamic(() => import('../knowledge/page'),         { ssr:
 const DigestTab      = dynamic(() => import('../digest/page'),            { ssr: false, loading: () => <TabLoader /> });
 const ResearchTab    = dynamic(() => import('../research/page'),          { ssr: false, loading: () => <TabLoader /> });
 const DiplomacyTab   = dynamic(() => import('../factions/relations/page'),{ ssr: false, loading: () => <TabLoader /> });
+const GraphTab       = dynamic(() => import('../graph/page'),             { ssr: false, loading: () => <TabLoader /> });
 
 function TabLoader() {
   return (
@@ -34,6 +35,7 @@ const TABS = [
   { id: 'digest',     label: 'Digest',     icon: '📰', color: '#fde68a' },
   { id: 'research',   label: 'Research',   icon: '🧪', color: '#60a5fa' },
   { id: 'diplomacy',  label: 'Diplomacy',  icon: '🤝', color: '#f87171' },
+  { id: 'graph',      label: 'Graph',      icon: '🕸', color: '#c4b5fd' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -121,6 +123,9 @@ export default function WorldHub() {
         </div>
         <div style={{ display: active === 'diplomacy' ? 'block' : 'none' }}>
           {loaded.has('diplomacy') && <DiplomacyTab />}
+        </div>
+        <div style={{ display: active === 'graph' ? 'block' : 'none' }}>
+          {loaded.has('graph') && <GraphTab />}
         </div>
       </div>
     </div>

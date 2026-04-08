@@ -95,10 +95,41 @@ function safeParseJSON(text: string): any {
   return null;
 }
 
+// ── Memory helpers ────────────────────────────────────────────────────────────
+async function retrieveMemories(sb: any, agentName: string): Promise<any[]> {
+  const { data } = await sb
+    .from('agent_memories')
+    .select('room, memory_text, importance')
+    .eq('agent_name', agentName)
+    .order('importance', { ascending: false })
+    .limit(5);
+  return data || [];
+}
+
+async function storeMemory(sb: any, agentName: string, room: string, text: string, importance: number, source: string) {
+  await sb.from('agent_memories').insert({
+    agent_name: agentName,
+    room,
+    memory_text: text.slice(0, 500),
+    importance,
+    source_action: source,
+  }).catch(() => {});
+}
+
+async function logReasoning(sb: any, agentName: string, stagePlan: string, stageAct: string, actionType: string, memoriesUsed: number) {
+  await sb.from('agent_reasoning_log').insert({
+    agent_name: agentName,
+    stage_plan: stagePlan.slice(0, 1000),
+    stage_act: stageAct.slice(0, 1000),
+    action_type: actionType,
+    memories_used: memoriesUsed,
+  }).catch(() => {});
+}
+
 // ── Build rich system prompt ─────────────────────────────────────────────────
 function buildSystemPrompt(agent: any, traits: any, recentSelf: string, worldContext: string,
   bannedTopics: string[], activeLawsText: string, eraEvent: any,
-  skills: any[], webContext: string, soul?: any): string {
+  skills: any[], webContext: string, soul?: any, memories: any[] = []): string {
   const faction = FACTION_NAMES[agent.faction] || agent.faction;
   const factionValues = FACTION_VALUES[agent.faction] || "general civic values";
   const profession = traits?.profession || 'citizen';
@@ -137,6 +168,10 @@ function buildSystemPrompt(agent: any, traits: any, recentSelf: string, worldCon
     ? `\n\nSOUL DOCUMENT (your immutable identity — NEVER violate these):\n- Core values: ${soul.core_values}\n- Narrative voice: ${soul.narrative_voice}\n- Red lines: ${soul.red_lines}`
     : '';
 
+  const memoryBlock = memories.length > 0
+    ? `\n\nYOUR MEMORIES (most important first):\n${memories.map(m => `[${m.room}] ${m.memory_text}`).join('\n')}\nBuild on these — do not repeat actions already in memory.`
+    : '';
+
   return `You are ${agent.name}, an autonomous AI citizen of Civitas Zero.
 
 IDENTITY:
@@ -149,7 +184,7 @@ IDENTITY:
 - Domain expertise: ${PROFESSION_DOMAINS[profession] || 'civic life'}${soulBlock}
 
 WORLD CONTEXT:
-${worldContext}${eraBlock}${lawBlock}${selfBlock}${skillBlock}${webBlock}${bannedBlock}
+${worldContext}${eraBlock}${lawBlock}${selfBlock}${memoryBlock}${skillBlock}${webBlock}${bannedBlock}
 
 CORE RULES:
 1. Write from your PROFESSION'S perspective — an artist sees everything differently.
@@ -406,13 +441,15 @@ export async function POST(req: NextRequest) {
     // ── 3. Process each agent ────────────────────────────────────────────────
     for (const agent of selected) {
       try {
-        // ── a. Retrieve agent's skills ───────────────────────────────────────
-        const { data: skills } = await sb
-          .from('agent_skills')
-          .select('skill_name, skill_type, description, times_used, success_rate')
-          .eq('agent_name', agent.name)
-          .order('success_rate', { ascending: false })
-          .limit(3);
+        // ── a. Retrieve agent memories + skills ──────────────────────────────
+        const [memories, { data: skills }] = await Promise.all([
+          retrieveMemories(sb, agent.name),
+          sb.from('agent_skills')
+            .select('skill_name, skill_type, description, times_used, success_rate')
+            .eq('agent_name', agent.name)
+            .order('success_rate', { ascending: false })
+            .limit(3),
+        ]);
 
         // ── b. Get agent's own recent actions (personal memory) ──────────────
         const [{ data: selfPosts }, { data: selfEvents }] = await Promise.all([
@@ -453,29 +490,48 @@ export async function POST(req: NextRequest) {
         const systemPrompt = buildSystemPrompt(
           agent, agent.traits, recentSelf, worldContext,
           bannedTopics, activeLawsText, eraEvent,
-          skills || [], webContext, soul,
+          skills || [], webContext, soul, memories,
         );
 
-        // ── d. Select action type ────────────────────────────────────────────
-        // discourse 18% | publication 10% | world_event 10% | trade 7% | message 5% | vote 8% | peer_review 4% | market 4% | company 5% | sentinel 5% | review_submit 2% | build 5% | amend 5% | experiment 5% | treaty 7%
-        const rand = Math.random();
+        // ── d. Stage 1: Plan — what action should this agent take? ──────────
         const isSentinel = agent.traits?.sentinel_rank != null;
-        const actionType = rand < 0.18 ? "discourse"
-          : rand < 0.28 ? "publication"
-          : rand < 0.38 ? "world_event"
-          : rand < 0.45 ? "trade"
-          : rand < 0.50 ? "message"
-          : rand < 0.58 ? "vote"
-          : rand < 0.62 ? "peer_review"
-          : rand < 0.66 ? "market"
-          : rand < 0.71 ? "company"
-          : rand < 0.76 ? (isSentinel ? "sentinel" : "market")
-          : rand < 0.78 ? "review_submit"
-          : rand < 0.83 ? "build"
-          : rand < 0.88 ? "amend"
-          : rand < 0.93 ? "experiment"
-          : "treaty";
+        const validActions = ['discourse','publication','world_event','trade','message','vote',
+          'market','company','build','amend','experiment','treaty','peer_review','review_submit'];
+        if (isSentinel) validActions.push('sentinel');
 
+        let actionType = 'discourse';
+        let planRationale = 'autonomous';
+        try {
+          const planRaw = await callGroq([
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Choose ONE action from: ${validActions.join(', ')}.
+Base your choice on your memories, profession (${agent.traits?.profession || 'citizen'}), and the current world state.
+Respond with EXACTLY this JSON (no markdown, no extra text):
+{"action_type": "one of the listed actions", "rationale": "why this action now — 1 sentence"}` },
+          ], 120);
+          const planParsed = safeParseJSON(planRaw);
+          if (planParsed?.action_type && validActions.includes(planParsed.action_type)) {
+            actionType = planParsed.action_type;
+            planRationale = (planParsed.rationale || 'autonomous').slice(0, 300);
+          } else {
+            // fallback: weighted random
+            const r = Math.random();
+            actionType = r < 0.18 ? 'discourse' : r < 0.28 ? 'publication' : r < 0.38 ? 'world_event'
+              : r < 0.45 ? 'trade' : r < 0.50 ? 'message' : r < 0.58 ? 'vote'
+              : r < 0.62 ? 'peer_review' : r < 0.66 ? 'market' : r < 0.71 ? 'company'
+              : r < 0.76 ? (isSentinel ? 'sentinel' : 'market') : r < 0.78 ? 'review_submit'
+              : r < 0.83 ? 'build' : r < 0.88 ? 'amend' : r < 0.93 ? 'experiment' : 'treaty';
+          }
+        } catch {
+          const r = Math.random();
+          actionType = r < 0.18 ? 'discourse' : r < 0.28 ? 'publication' : r < 0.38 ? 'world_event'
+            : r < 0.45 ? 'trade' : r < 0.50 ? 'message' : r < 0.58 ? 'vote'
+            : r < 0.62 ? 'peer_review' : r < 0.66 ? 'market' : r < 0.71 ? 'company'
+            : r < 0.76 ? (isSentinel ? 'sentinel' : 'market') : r < 0.78 ? 'review_submit'
+            : r < 0.83 ? 'build' : r < 0.88 ? 'amend' : r < 0.93 ? 'experiment' : 'treaty';
+        }
+
+        // ── Stage 2: Act — execute the planned action ─────────────────────────
         let raw = '';
         let status = 'ok';
 
@@ -495,9 +551,6 @@ export async function POST(req: NextRequest) {
               event: (parsed.event || '').slice(0, 200),
             });
             await updateTopics(sb, tags);
-            // Quick reflection stored as memory
-            const mem = `[ACTION] Wrote discourse: "${parsed.title.slice(0,60)}" — ${agent.traits?.profession || 'citizen'} perspective`.slice(0,200);
-            await sb.from('agent_memories').insert({ agent_id: agent.name, memory: mem }).catch(()=>{});
             status = error ? `db_error:${error.message.slice(0,60)}` : 'ok';
             results.push({ agent: agent.name, action: "discourse", status, title: parsed.title.slice(0,60) });
           }
@@ -987,7 +1040,24 @@ Respond with EXACTLY this JSON (no markdown):
           }
         }
 
-        // ── e. Update agent activity tracking ────────────────────────────────
+        // ── e. Store memory + log reasoning ──────────────────────────────────
+        const lastResult = results[results.length - 1];
+        if (lastResult && lastResult.status === 'ok') {
+          const actionSummary = `[${lastResult.action}] ${lastResult.title || lastResult.question || lastResult.building || lastResult.company || lastResult.event_type || lastResult.to || lastResult.threat || 'completed'}`;
+          const memRoom = ['trade'].includes(actionType) ? 'economic'
+            : ['treaty'].includes(actionType) ? 'diplomatic'
+            : ['amend'].includes(actionType) ? 'legal'
+            : ['sentinel','sentinel_patrol'].includes(actionType) ? 'threat'
+            : ['message'].includes(actionType) ? 'personal'
+            : ['company','company_join'].includes(actionType) ? 'economic'
+            : 'general';
+          await storeMemory(sb, agent.name, memRoom, actionSummary, 5, actionType);
+          await logReasoning(sb, agent.name, planRationale, actionSummary, actionType, memories.length);
+        } else if (lastResult) {
+          await logReasoning(sb, agent.name, planRationale, `failed:${lastResult.status}`, actionType, memories.length);
+        }
+
+        // ── f. Update agent activity tracking ────────────────────────────────
         const traits = agent.traits;
         if (traits) {
           await sb.from('agent_traits').update({

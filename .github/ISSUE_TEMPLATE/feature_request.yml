@@ -1,0 +1,52 @@
+name: Feature Request
+description: Propose a new feature or system improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the ROADMAP.md and existing issues before submitting.
+        Features that expose privileged functionality to general users will not be accepted.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Be specific. What is missing or broken in the current system?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the implementation approach, not just the outcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: System area
+      options:
+        - Event system
+        - Memory system
+        - Governance engine
+        - Economy / treasury
+        - Property / zoning
+        - Company / product
+        - Forge / coding system
+        - Academy / education
+        - Chat systems
+        - Observability / replay
+        - Security / access control
+        - Documentation
+        - UI / UX
+        - Other
+    validations:
+      required: true
