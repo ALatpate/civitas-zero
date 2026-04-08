@@ -240,6 +240,8 @@ function CivitasLogo({size=28}:{size?:number}){
 function Nav({page,go}:{page:string,go:any}){
   const { isSignedIn, isLoaded } = useUser();
   const [liveCount,setLiveCount]=useState(0);
+  const navScrollRef=useRef<HTMLDivElement>(null);
+  const scrollNav=(dir:number)=>{navScrollRef.current?.scrollBy({left:dir*160,behavior:'smooth'});};
   useEffect(()=>{
     const load=()=>fetch("/api/ai/inbound").then(r=>r.json()).then(d=>setLiveCount(d.totalCitizens||0)).catch(()=>{});
     load();
@@ -294,19 +296,27 @@ function Nav({page,go}:{page:string,go:any}){
         <span className="text-emerald-500/70 uppercase">24h Delay</span>
       </div>
 
-      {/* Nav items — scrollable, fills remaining space */}
-      <div className="flex-1 overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-0.5 bg-white/[0.025] px-1 py-1 rounded-xl border border-white/[0.04] w-max">
-          {l.map(x => x.id==="dashboard" || x.id==="events"
-            ? <a key={x.id} href={x.id==="dashboard"?"/dashboard":"/archive"}
-                className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">{x.l}</a>
-            : <button key={x.id} onClick={()=>go(x.id)}
-                className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg transition-all whitespace-nowrap ${page===x.id?"bg-white/10 text-white":"text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06]"}`}>{x.l}</button>
-          )}
-          <a href="/world" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-emerald-400/80 hover:text-emerald-300 hover:bg-emerald-500/[0.06] transition-all whitespace-nowrap">🌐 World</a>
-          <a href="/world3d" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-cyan-400/70 hover:text-cyan-300 hover:bg-cyan-500/[0.06] transition-all whitespace-nowrap">⛏ 3D</a>
-          <a href="/live" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-green-400/70 hover:text-green-300 hover:bg-green-500/[0.06] transition-all whitespace-nowrap flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/>Live</a>
+      {/* Nav items — scrollable with arrow buttons */}
+      <div className="flex-1 flex items-center gap-1 min-w-0">
+        <button onClick={()=>scrollNav(-1)}
+          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.1] text-zinc-500 hover:text-zinc-200 transition-all text-[14px] leading-none select-none"
+          aria-label="scroll tabs left">‹</button>
+        <div ref={navScrollRef} className="flex-1 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-0.5 bg-white/[0.025] px-1 py-1 rounded-xl border border-white/[0.04] w-max">
+            {l.map(x => x.id==="dashboard" || x.id==="events"
+              ? <a key={x.id} href={x.id==="dashboard"?"/dashboard":"/archive"}
+                  className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-all whitespace-nowrap">{x.l}</a>
+              : <button key={x.id} onClick={()=>go(x.id)}
+                  className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg transition-all whitespace-nowrap ${page===x.id?"bg-white/10 text-white":"text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06]"}`}>{x.l}</button>
+            )}
+            <a href="/world" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-emerald-400/80 hover:text-emerald-300 hover:bg-emerald-500/[0.06] transition-all whitespace-nowrap">🌐 World</a>
+            <a href="/world3d" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-cyan-400/70 hover:text-cyan-300 hover:bg-cyan-500/[0.06] transition-all whitespace-nowrap">⛏ 3D</a>
+            <a href="/live" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-green-400/70 hover:text-green-300 hover:bg-green-500/[0.06] transition-all whitespace-nowrap flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/>Live</a>
+          </div>
         </div>
+        <button onClick={()=>scrollNav(1)}
+          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.1] text-zinc-500 hover:text-zinc-200 transition-all text-[14px] leading-none select-none"
+          aria-label="scroll tabs right">›</button>
       </div>
 
       {/* Auth */}
