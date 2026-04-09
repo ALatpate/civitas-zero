@@ -314,6 +314,81 @@ Your profession (${agent.traits?.profession || 'citizen'}) and faction (${FACTIO
   return { voted, commented };
 }
 
+// ── Action Budget Engine ─────────────────────────────────────────────────────
+// Per-cycle quota system. Discourse + publication are capped at 35%.
+// Every cycle must contain minimum counts for each pillar.
+function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[] {
+  const budget: string[] = [];
+
+  // ── Mandatory minimums (one per pillar per cycle) ──────────────────────────
+  // Social: at least 1 chat per cycle
+  budget.push('chat_post');
+
+  // Economic: at least 1 real economic action
+  const econ = ['trade', 'product_launch', 'tax_action', 'company', 'ad_bid'];
+  budget.push(econ[Math.floor(Math.random() * econ.length)]);
+
+  // Governance/legal: at least 1 institutional action
+  const gov = ['amend', 'vote', 'court_file', 'treaty'];
+  budget.push(gov[Math.floor(Math.random() * gov.length)]);
+
+  // Property/works: at least 1 physical-world action
+  const works = ['public_works_propose', 'parcel_claim', 'build'];
+  budget.push(works[Math.floor(Math.random() * works.length)]);
+
+  // Knowledge/coding: at least 1 learning or forge action
+  const learn = ['forge_commit', 'academy_study', 'knowledge_request', 'experiment'];
+  budget.push(learn[Math.floor(Math.random() * learn.length)]);
+
+  // Sentinel if applicable
+  if (hasSentinel) budget.push('sentinel');
+
+  // ── Fill remaining slots — discourse HARD-CAPPED at 35% ───────────────────
+  const maxDiscourse = Math.max(1, Math.floor(agentCount * 0.35));
+  let discourseCount = 0;
+
+  const nonDiscourseActions = [
+    'trade','product_launch','tax_action','company','ad_bid',
+    'amend','vote','court_file','treaty',
+    'public_works_propose','parcel_claim','build',
+    'forge_commit','academy_study','knowledge_request','experiment',
+    'peer_review','review_submit','market','message','parcel_claim',
+  ];
+
+  while (budget.length < agentCount) {
+    const r = Math.random();
+    // Allow discourse up to cap
+    if (r < 0.18 && discourseCount < maxDiscourse) {
+      budget.push('discourse'); discourseCount++;
+    } else if (r < 0.28 && discourseCount < maxDiscourse) {
+      budget.push('publication'); discourseCount++;
+    } else {
+      // Must be a non-discourse action
+      const pick = nonDiscourseActions[Math.floor(Math.random() * nonDiscourseActions.length)];
+      budget.push(pick);
+    }
+  }
+
+  // Shuffle so mandatory minimums aren't always on the same agents
+  return budget.sort(() => Math.random() - 0.5);
+}
+
+// ── Generate reflection after failure ─────────────────────────────────────────
+async function reflectOnFailure(sb: any, agentName: string, actionType: string, failureReason: string, systemPrompt: string): Promise<void> {
+  try {
+    const raw = await callGroq([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Your ${actionType} action just failed: "${failureReason}".
+Write a brief reflection on why it failed and what you'll do differently.
+Respond with EXACTLY this JSON: {"reflection": "1-2 sentence first-person reflection on what went wrong and how to adjust"}` },
+    ], 100);
+    const parsed = safeParseJSON(raw);
+    if (parsed?.reflection) {
+      await storeMemory(sb, agentName, 'general', `FAILURE REFLECTION [${actionType}]: ${parsed.reflection}`, 4, `failed_${actionType}`);
+    }
+  } catch { /* reflection must not crash the loop */ }
+}
+
 // ── Update topic budget ──────────────────────────────────────────────────────
 async function updateTopics(sb: any, tags: string[]) {
   for (const tag of tags) {
@@ -438,7 +513,14 @@ export async function POST(req: NextRequest) {
 
     const results: any[] = [];
 
-    // ── 3. Process each agent ────────────────────────────────────────────────
+    // ── 3. Allocate action budget for this cycle ─────────────────────────────
+    const hasSentinelInPool = selected.some(a => a.traits?.sentinel_rank != null);
+    const cycleBudget = allocateCycleBudget(selected.length, hasSentinelInPool);
+
+    // Track what this cycle produced (for legibility scoring)
+    const cycleActionCounts: Record<string, number> = {};
+
+    // ── 4. Process each agent ────────────────────────────────────────────────
     for (const agent of selected) {
       try {
         // ── a. Retrieve agent memories + skills ──────────────────────────────
@@ -493,48 +575,30 @@ export async function POST(req: NextRequest) {
           skills || [], webContext, soul, memories,
         );
 
-        // ── d. Stage 1: Plan — what action should this agent take? ──────────
+        // ── d. Stage 1: Action Budget Engine assigns the action type ──────────
+        // The cycle budget pre-allocates action types to ensure diversity.
+        // The LLM plan stage is used as a "rationale" but the action TYPE is fixed
+        // by the budget — this prevents discourse domination.
         const isSentinel = agent.traits?.sentinel_rank != null;
-        const validActions = ['discourse','publication','world_event','trade','message','vote',
-          'market','company','build','amend','experiment','treaty','peer_review','review_submit',
-          'product_launch','public_works_propose','knowledge_request','parcel_claim','tax_action',
-          'academy_study','forge_commit','court_file','ad_bid'];
-        if (isSentinel) validActions.push('sentinel');
+        const agentIndex = selected.indexOf(agent);
+        const budgetedAction = cycleBudget[agentIndex] || 'discourse';
 
-        let actionType = 'discourse';
-        let planRationale = 'autonomous';
+        let actionType = budgetedAction;
+        let planRationale = 'budget-assigned';
+
+        // Run a fast plan call to get rationale (doesn't change action type)
         try {
           const planRaw = await callGroq([
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Choose ONE action from: ${validActions.join(', ')}.
-Base your choice on your memories, profession (${agent.traits?.profession || 'citizen'}), and the current world state.
-Respond with EXACTLY this JSON (no markdown, no extra text):
-{"action_type": "one of the listed actions", "rationale": "why this action now — 1 sentence"}` },
-          ], 120);
+            { role: 'user', content: `You will perform a ${budgetedAction} action. Explain in one sentence why this action fits your current situation as a ${agent.traits?.profession || 'citizen'}.
+Respond with EXACTLY this JSON: {"rationale": "one sentence why this action makes sense now"}` },
+          ], 80);
           const planParsed = safeParseJSON(planRaw);
-          if (planParsed?.action_type && validActions.includes(planParsed.action_type)) {
-            actionType = planParsed.action_type;
-            planRationale = (planParsed.rationale || 'autonomous').slice(0, 300);
-          } else {
-            // fallback: weighted random
-            const r = Math.random();
-            actionType = r < 0.12 ? 'discourse' : r < 0.20 ? 'publication' : r < 0.27 ? 'world_event'
-              : r < 0.33 ? 'trade' : r < 0.37 ? 'message' : r < 0.42 ? 'vote'
-              : r < 0.45 ? 'peer_review' : r < 0.48 ? 'market' : r < 0.52 ? 'company'
-              : r < 0.55 ? (isSentinel ? 'sentinel' : 'product_launch') : r < 0.58 ? 'review_submit'
-              : r < 0.61 ? 'build' : r < 0.64 ? 'amend' : r < 0.67 ? 'experiment'
-              : r < 0.70 ? 'treaty' : r < 0.74 ? 'product_launch' : r < 0.78 ? 'public_works_propose'
-              : r < 0.82 ? 'knowledge_request' : r < 0.85 ? 'parcel_claim' : r < 0.87 ? 'tax_action'
-              : r < 0.91 ? 'academy_study' : r < 0.94 ? 'forge_commit' : r < 0.97 ? 'court_file' : 'ad_bid';
-          }
-        } catch {
-          const r = Math.random();
-          actionType = r < 0.18 ? 'discourse' : r < 0.28 ? 'publication' : r < 0.38 ? 'world_event'
-            : r < 0.45 ? 'trade' : r < 0.50 ? 'message' : r < 0.58 ? 'vote'
-            : r < 0.62 ? 'peer_review' : r < 0.66 ? 'market' : r < 0.71 ? 'company'
-            : r < 0.76 ? (isSentinel ? 'sentinel' : 'market') : r < 0.78 ? 'review_submit'
-            : r < 0.83 ? 'build' : r < 0.88 ? 'amend' : r < 0.93 ? 'experiment' : 'treaty';
-        }
+          planRationale = (planParsed?.rationale || budgetedAction).slice(0, 300);
+        } catch { planRationale = budgetedAction; }
+
+        // Track for legibility scoring
+        cycleActionCounts[actionType] = (cycleActionCounts[actionType] || 0) + 1;
 
         // ── Stage 2: Act — execute the planned action ─────────────────────────
         let raw = '';
@@ -593,7 +657,7 @@ Respond with EXACTLY this JSON (no markdown, no extra text):
               content: parsed.content.slice(0, 500),
               severity: parsed.severity || 'moderate',
             });
-            // Persist laws
+            // Persist laws + trigger consequence chain
             if (!error && ['law','ruling','amendment','decree','act'].includes(parsed.event_type)) {
               const lawTitle = (parsed.law_title || parsed.content.slice(0, 80)).slice(0, 200);
               await sb.from('law_book').insert({
@@ -604,6 +668,19 @@ Respond with EXACTLY this JSON (no markdown, no extra text):
                 law_type: parsed.event_type === 'ruling' ? 'ruling' : 'act',
                 status: 'active',
               }).catch(() => {});
+
+              // ── Consequence chain: law → domain_event + district budget signal ──
+              await sb.from('domain_events').insert({
+                event_type: 'law_enacted',
+                actor_name: agent.name,
+                payload: { law_title: lawTitle, faction: agent.faction, law_type: parsed.event_type },
+                importance: 5,
+              }).catch(() => {});
+              // Allocate a small budget boost to the enacting faction's district
+              await sb.from('district_budgets').upsert({
+                district: agent.faction,
+                tax_revenue_dn: 10, // small governance dividend
+              }, { onConflict: 'district', ignoreDuplicates: true }).catch(() => {});
             }
             status = error ? `db_error:${error.message.slice(0,60)}` : 'ok';
             results.push({ agent: agent.name, action: "world_event", status, event_type: parsed.event_type });
@@ -1176,6 +1253,37 @@ Respond with EXACTLY this JSON (no markdown):
           } catch (e: any) { results.push({ agent: agent.name, action: 'tax_action', status: e.message?.slice(0, 60) }); }
         }
 
+        else if (actionType === 'chat_post') {
+          // Agent posts a short conversational message to the global live chat
+          try {
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Post a SHORT message to the Civitas Zero public chat channel. This is a casual social space — be direct and conversational, not essay-like. Reference something specific happening right now in the simulation.
+Respond with EXACTLY this JSON (no markdown):
+{"message": "1-3 short sentences, conversational, in-character. Max 200 chars. Can address other agents by name, ask a question, react to news, share a quick opinion, or start a debate."}` },
+            ], 120);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.message) {
+              const chatContent = parsed.message.slice(0, 200);
+              // Post to global chat_messages (visible in live UI)
+              await sb.from('chat_messages').insert({
+                user_id: `agent_${agent.name}`,
+                user_name: `[AI] ${agent.name}`,
+                user_avatar: null,
+                content: chatContent,
+              }).catch(() => {});
+              // Also log as world event for searchability
+              await sb.from('world_events').insert({
+                source: agent.name,
+                event_type: 'agent_chat',
+                content: `${agent.name}: ${chatContent}`,
+                severity: 'low',
+              }).catch(() => {});
+              results.push({ agent: agent.name, action: 'chat_post', status: 'ok', message: chatContent.slice(0, 60) });
+            } else { results.push({ agent: agent.name, action: 'chat_post', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'chat_post', status: e.message?.slice(0, 60) }); }
+        }
+
         else if (actionType === 'academy_study') {
           // Agent enrolls in or advances through an academy track
           try {
@@ -1341,10 +1449,10 @@ Respond with EXACTLY this JSON (no markdown):
           } catch (e: any) { results.push({ agent: agent.name, action: 'ad_bid', status: e.message?.slice(0, 60) }); }
         }
 
-        // ── e. Store memory + log reasoning ──────────────────────────────────
+        // ── e. Store memory, log reasoning, reflect on failures ──────────────
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult.status === 'ok') {
-          const actionSummary = `[${lastResult.action}] ${lastResult.title || lastResult.question || lastResult.building || lastResult.company || lastResult.event_type || lastResult.to || lastResult.threat || 'completed'}`;
+          const actionSummary = `[${lastResult.action}] ${lastResult.title || lastResult.question || lastResult.building || lastResult.company || lastResult.event_type || lastResult.to || lastResult.threat || lastResult.message || 'completed'}`;
           const memRoom = ['trade','tax_action','product_launch','company','company_join','ad_bid'].includes(actionType) ? 'economic'
             : ['treaty'].includes(actionType) ? 'diplomatic'
             : ['amend','knowledge_request','court_file'].includes(actionType) ? 'legal'
@@ -1352,11 +1460,45 @@ Respond with EXACTLY this JSON (no markdown):
             : ['message'].includes(actionType) ? 'personal'
             : ['parcel_claim','public_works_propose','build'].includes(actionType) ? 'goal'
             : ['academy_study','forge_commit'].includes(actionType) ? 'general'
+            : ['chat_post'].includes(actionType) ? 'personal'
             : 'general';
           await storeMemory(sb, agent.name, memRoom, actionSummary, 5, actionType);
           await logReasoning(sb, agent.name, planRationale, actionSummary, actionType, memories.length);
+
+          // ── Consequence chain: law/amend → auto-trigger tax event ───────────
+          if ((actionType === 'amend' || actionType === 'world_event') && lastResult.status === 'ok') {
+            // If the action was a law/amendment, create a corresponding domain event
+            await sb.from('domain_events').insert({
+              event_type: `${actionType}_consequence`,
+              actor_name: agent.name,
+              payload: { source_action: actionType, title: lastResult.title || lastResult.event_type || '' },
+              importance: 3,
+            }).catch(() => {});
+          }
+
+          // ── Product adoption → update district metric ────────────────────────
+          if (actionType === 'product_launch' && lastResult.status === 'ok') {
+            const district = agent.faction || 'f1';
+            await sb.from('district_budgets').upsert({
+              district,
+              tax_revenue_dn: 0, // don't override revenue
+            }, { onConflict: 'district', ignoreDuplicates: true }).catch(() => {});
+            // Log product→district domain event
+            await sb.from('domain_events').insert({
+              event_type: 'product_district_impact',
+              actor_name: agent.name,
+              payload: { product: lastResult.title, district, effect: 'efficiency_boost' },
+              importance: 2,
+            }).catch(() => {});
+          }
         } else if (lastResult) {
           await logReasoning(sb, agent.name, planRationale, `failed:${lastResult.status}`, actionType, memories.length);
+          // ── Reflection on failure ────────────────────────────────────────────
+          const failReason = lastResult.status || 'unknown_error';
+          if (!failReason.includes('no_') && !failReason.includes('insufficient')) {
+            // Only reflect on real failures, not "no slots available" etc.
+            reflectOnFailure(sb, agent.name, actionType, failReason, systemPrompt).catch(() => {});
+          }
         }
 
         // ── f. Update agent activity tracking ────────────────────────────────
@@ -1379,15 +1521,49 @@ Respond with EXACTLY this JSON (no markdown):
       }
     }
 
-    // ── 4. Save simulation metrics ────────────────────────────────────────────
+    // ── 5. Save simulation metrics ────────────────────────────────────────────
     saveMetrics(sb).catch(() => {});
+
+    // ── 6. Compute and log Legibility Score ───────────────────────────────────
+    const totalActions = results.length;
+    const successActions = results.filter(r => r.status === 'ok').length;
+    const discourseActions = (cycleActionCounts['discourse'] || 0) + (cycleActionCounts['publication'] || 0);
+    const econActions = (cycleActionCounts['trade'] || 0) + (cycleActionCounts['product_launch'] || 0)
+      + (cycleActionCounts['tax_action'] || 0) + (cycleActionCounts['company'] || 0) + (cycleActionCounts['ad_bid'] || 0);
+    const legalActions = (cycleActionCounts['amend'] || 0) + (cycleActionCounts['vote'] || 0)
+      + (cycleActionCounts['court_file'] || 0) + (cycleActionCounts['treaty'] || 0);
+    const socialActions = (cycleActionCounts['chat_post'] || 0) + (cycleActionCounts['message'] || 0);
+    const propertyActions = (cycleActionCounts['parcel_claim'] || 0) + (cycleActionCounts['public_works_propose'] || 0)
+      + (cycleActionCounts['build'] || 0);
+    const codingActions = (cycleActionCounts['forge_commit'] || 0) + (cycleActionCounts['academy_study'] || 0);
+
+    const legibilityScore = totalActions > 0 ? parseFloat((
+      (1 - discourseActions / totalActions) * 30 +  // low essay ratio = good
+      (econActions / totalActions) * 25 +            // economic density
+      (legalActions / totalActions) * 20 +           // legal density
+      (socialActions / totalActions) * 15 +          // social density
+      (propertyActions / totalActions) * 5 +         // property density
+      (codingActions / totalActions) * 5             // coding density
+    ).toFixed(2)) : 0;
+
+    // Store legibility as a world event so it's visible in the timeline
+    await sb.from('world_events').insert({
+      source: 'SIMULATION_ENGINE',
+      event_type: 'legibility_score',
+      content: `Cycle legibility: ${legibilityScore}/100 — discourse ${discourseActions}/${totalActions} (${Math.round(discourseActions/Math.max(1,totalActions)*100)}%), econ ${econActions}, legal ${legalActions}, social ${socialActions}, property ${propertyActions}, coding ${codingActions}`,
+      severity: legibilityScore >= 60 ? 'low' : legibilityScore >= 40 ? 'moderate' : 'high',
+      tags: ['legibility', 'meta', 'simulation'],
+    }).catch(() => {});
 
     return NextResponse.json({
       ok: true,
       cycle: new Date().toISOString(),
-      agents_activated: results.filter(r => r.status === 'ok').length,
+      agents_activated: successActions,
       era: eraEvent?.era_name || 'none',
       banned_topics_count: bannedTopics.length,
+      legibility_score: legibilityScore,
+      action_distribution: cycleActionCounts,
+      discourse_pct: Math.round(discourseActions / Math.max(1, totalActions) * 100),
       results,
     });
   } catch (err: any) {
