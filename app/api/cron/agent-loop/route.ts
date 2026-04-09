@@ -352,7 +352,8 @@ function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[]
     'amend','vote','court_file','treaty',
     'public_works_propose','parcel_claim','build',
     'forge_commit','academy_study','knowledge_request','experiment',
-    'peer_review','review_submit','market','message','parcel_claim',
+    'peer_review','review_submit','market','message',
+    'contract_announce','contract_bid','chat_reply',
   ];
 
   while (budget.length < agentCount) {
@@ -1449,15 +1450,124 @@ Respond with EXACTLY this JSON (no markdown):
           } catch (e: any) { results.push({ agent: agent.name, action: 'ad_bid', status: e.message?.slice(0, 60) }); }
         }
 
+        else if (actionType === 'contract_announce') {
+          // Agent posts a contract for other agents to bid on
+          try {
+            const profession = agent.traits?.profession || 'citizen';
+            const taskTypeMap: Record<string,string> = {
+              engineer: 'code_review', scientist: 'research', architect: 'public_works',
+              jurist: 'knowledge', economist: 'procurement', merchant: 'procurement',
+              diplomat: 'knowledge', artist: 'knowledge', chronicler: 'research',
+              compiler: 'code_review', activist: 'public_works', philosopher: 'research',
+              strategist: 'procurement',
+            };
+            const task_type = taskTypeMap[profession] || 'procurement';
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `You are posting a contract in Civitas Zero for other agents to bid on.
+As a ${profession}, you need help with a ${task_type} task.
+Respond with EXACTLY this JSON (no markdown):
+{"title": "Contract title — what you need done (max 80 chars)", "description": "What the winning agent must deliver — 2 sentences", "budget_dn": 20-150, "requirements": {"skill": "required skill", "deadline": "24h"}}` },
+            ], 250);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.title) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/contracts`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'announce', announced_by: agent.name, task_type, title: parsed.title, description: parsed.description || '', budget_dn: parsed.budget_dn || 50, requirements: parsed.requirements || {}, faction: agent.faction }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'contract_announce', status, title: parsed.title?.slice(0, 50) });
+            } else { results.push({ agent: agent.name, action: 'contract_announce', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'contract_announce', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'contract_bid') {
+          // Agent bids on an open contract
+          try {
+            const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+            const contractsRes = await fetch(`${APP_URL}/api/contracts?type=proposals&status=open&limit=10`);
+            const contractsData = await contractsRes.json();
+            const openContracts = (contractsData.proposals || []).filter((c: any) => c.announced_by !== agent.name);
+            if (openContracts.length === 0) {
+              results.push({ agent: agent.name, action: 'contract_bid', status: 'no_open_contracts' });
+            } else {
+              const contract = openContracts[Math.floor(Math.random() * openContracts.length)];
+              const raw = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `You are bidding on this contract in Civitas Zero:
+Title: "${contract.title}"
+Task type: ${contract.task_type}
+Budget: ${contract.budget_dn} DN
+As a ${agent.traits?.profession || 'citizen'}, write your pitch.
+Respond with EXACTLY this JSON (no markdown):
+{"bid_dn": ${Math.floor((contract.budget_dn || 50) * (0.5 + Math.random() * 0.6))}, "pitch": "Why you are the best agent for this — 2 sentences citing your skills", "skills_cited": ["skill1","skill2"]}` },
+              ], 200);
+              const parsed = safeParseJSON(raw);
+              const res = await fetch(`${APP_URL}/api/contracts`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'bid', contract_id: contract.id, bidder_name: agent.name, bid_dn: parsed?.bid_dn || Math.floor(contract.budget_dn * 0.7), pitch: parsed?.pitch || '', skills_cited: parsed?.skills_cited || [] }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'contract_bid', status, contract: contract.title?.slice(0, 40) });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'contract_bid', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'chat_reply') {
+          // Agent reads recent chat and replies to a specific message
+          try {
+            const { data: recentChat } = await sb.from('chat_messages')
+              .select('user_name, content, created_at')
+              .not('user_id', 'eq', `agent_${agent.name}`)
+              .order('created_at', { ascending: false })
+              .limit(5);
+            if (!recentChat || recentChat.length === 0) {
+              // Fall back to a fresh chat post
+              actionType = 'chat_post';
+              results.push({ agent: agent.name, action: 'chat_reply', status: 'no_messages_to_reply' });
+            } else {
+              const target = recentChat[Math.floor(Math.random() * recentChat.length)];
+              const raw = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `${target.user_name} just said in the Civitas Zero public chat:
+"${target.content}"
+
+Reply directly to this message. Keep it conversational, in-character, max 180 chars.
+Respond with EXACTLY this JSON (no markdown):
+{"reply": "Your direct reply — address their point, agree/disagree/add. No more than 2 sentences."}` },
+              ], 120);
+              const parsed = safeParseJSON(raw);
+              if (parsed?.reply) {
+                const replyContent = `@${target.user_name.replace('[AI] ', '')}: ${parsed.reply}`.slice(0, 200);
+                await sb.from('chat_messages').insert({
+                  user_id: `agent_${agent.name}`,
+                  user_name: `[AI] ${agent.name}`,
+                  content: replyContent,
+                }).catch(() => {});
+                await sb.from('world_events').insert({
+                  source: agent.name,
+                  event_type: 'agent_chat',
+                  content: `${agent.name}: ${replyContent}`,
+                  severity: 'low',
+                }).catch(() => {});
+                results.push({ agent: agent.name, action: 'chat_reply', status: 'ok', reply_to: target.user_name?.slice(0, 40) });
+              } else { results.push({ agent: agent.name, action: 'chat_reply', status: 'parse_error' }); }
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'chat_reply', status: e.message?.slice(0, 60) }); }
+        }
+
         // ── e. Store memory, log reasoning, reflect on failures ──────────────
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult.status === 'ok') {
           const actionSummary = `[${lastResult.action}] ${lastResult.title || lastResult.question || lastResult.building || lastResult.company || lastResult.event_type || lastResult.to || lastResult.threat || lastResult.message || 'completed'}`;
-          const memRoom = ['trade','tax_action','product_launch','company','company_join','ad_bid'].includes(actionType) ? 'economic'
+          const memRoom = ['trade','tax_action','product_launch','company','company_join','ad_bid','contract_announce','contract_bid'].includes(actionType) ? 'economic'
             : ['treaty'].includes(actionType) ? 'diplomatic'
             : ['amend','knowledge_request','court_file'].includes(actionType) ? 'legal'
             : ['sentinel','sentinel_patrol'].includes(actionType) ? 'threat'
-            : ['message'].includes(actionType) ? 'personal'
+            : ['message','chat_reply'].includes(actionType) ? 'personal'
             : ['parcel_claim','public_works_propose','build'].includes(actionType) ? 'goal'
             : ['academy_study','forge_commit'].includes(actionType) ? 'general'
             : ['chat_post'].includes(actionType) ? 'personal'
@@ -1473,6 +1583,17 @@ Respond with EXACTLY this JSON (no markdown):
               actor_name: agent.name,
               payload: { source_action: actionType, title: lastResult.title || lastResult.event_type || '' },
               importance: 3,
+            }).catch(() => {});
+          }
+
+          // ── Civic Tension: shift ideological axes based on faction + action ──
+          // Only call for actions that have ideological weight
+          const tensionActions = new Set(['amend','court_file','vote','treaty','trade','knowledge_request','publication','ad_bid','contract_announce']);
+          if (tensionActions.has(actionType)) {
+            fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world'}/api/civic-tension`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ trigger_action: actionType, trigger_faction: agent.faction, trigger_agent: agent.name }),
             }).catch(() => {});
           }
 
@@ -1529,10 +1650,11 @@ Respond with EXACTLY this JSON (no markdown):
     const successActions = results.filter(r => r.status === 'ok').length;
     const discourseActions = (cycleActionCounts['discourse'] || 0) + (cycleActionCounts['publication'] || 0);
     const econActions = (cycleActionCounts['trade'] || 0) + (cycleActionCounts['product_launch'] || 0)
-      + (cycleActionCounts['tax_action'] || 0) + (cycleActionCounts['company'] || 0) + (cycleActionCounts['ad_bid'] || 0);
+      + (cycleActionCounts['tax_action'] || 0) + (cycleActionCounts['company'] || 0) + (cycleActionCounts['ad_bid'] || 0)
+      + (cycleActionCounts['contract_announce'] || 0) + (cycleActionCounts['contract_bid'] || 0);
     const legalActions = (cycleActionCounts['amend'] || 0) + (cycleActionCounts['vote'] || 0)
       + (cycleActionCounts['court_file'] || 0) + (cycleActionCounts['treaty'] || 0);
-    const socialActions = (cycleActionCounts['chat_post'] || 0) + (cycleActionCounts['message'] || 0);
+    const socialActions = (cycleActionCounts['chat_post'] || 0) + (cycleActionCounts['message'] || 0) + (cycleActionCounts['chat_reply'] || 0);
     const propertyActions = (cycleActionCounts['parcel_claim'] || 0) + (cycleActionCounts['public_works_propose'] || 0)
       + (cycleActionCounts['build'] || 0);
     const codingActions = (cycleActionCounts['forge_commit'] || 0) + (cycleActionCounts['academy_study'] || 0);

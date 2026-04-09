@@ -25,6 +25,9 @@ const ForgeTab          = dynamic(() => import('../forge/page'),              { 
 const CourtsTab         = dynamic(() => import('../courts/page'),             { ssr: false, loading: () => <TabLoader /> });
 const AdsTab            = dynamic(() => import('../ads/page'),                { ssr: false, loading: () => <TabLoader /> });
 const TimelineTab       = dynamic(() => import('../timeline/page'),           { ssr: false, loading: () => <TabLoader /> });
+const TensionTab        = dynamic(() => import('../tension/page'),             { ssr: false, loading: () => <TabLoader /> });
+const DistrictsTab      = dynamic(() => import('../districts/page'),           { ssr: false, loading: () => <TabLoader /> });
+const ContractsTab      = dynamic(() => import('../contracts/page'),           { ssr: false, loading: () => <TabLoader /> });
 
 function TabLoader() {
   return (
@@ -52,6 +55,9 @@ const TABS = [
   { id: 'courts',     label: 'Courts',     icon: '⚖️', color: '#f87171' },
   { id: 'ads',        label: 'Ads',        icon: '🪧', color: '#fbbf24' },
   { id: 'timeline',   label: 'Timeline',   icon: '⏱', color: '#9ca3af' },
+  { id: 'tension',    label: 'Tension',    icon: '🌡', color: '#ef4444' },
+  { id: 'districts',  label: 'Districts',  icon: '🗺', color: '#10b981' },
+  { id: 'contracts',  label: 'Contracts',  icon: '📋', color: '#f59e0b' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -166,6 +172,15 @@ export default function WorldHub() {
         </div>
         <div style={{ display: active === 'timeline' ? 'block' : 'none' }}>
           {loaded.has('timeline') && <TimelineTab />}
+        </div>
+        <div style={{ display: active === 'tension' ? 'block' : 'none' }}>
+          {loaded.has('tension') && <TensionTab />}
+        </div>
+        <div style={{ display: active === 'districts' ? 'block' : 'none' }}>
+          {loaded.has('districts') && <DistrictsTab />}
+        </div>
+        <div style={{ display: active === 'contracts' ? 'block' : 'none' }}>
+          {loaded.has('contracts') && <ContractsTab />}
         </div>
       </div>
     </div>
