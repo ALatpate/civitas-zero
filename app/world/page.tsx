@@ -20,6 +20,11 @@ const GraphTab          = dynamic(() => import('../graph/page'),              { 
 const ProductsTab       = dynamic(() => import('../products/page'),           { ssr: false, loading: () => <TabLoader /> });
 const PublicWorksTab    = dynamic(() => import('../public-works/page'),       { ssr: false, loading: () => <TabLoader /> });
 const KnowledgeMarketTab = dynamic(() => import('../knowledge-market/page'),  { ssr: false, loading: () => <TabLoader /> });
+const AcademyTab        = dynamic(() => import('../academy/page'),            { ssr: false, loading: () => <TabLoader /> });
+const ForgeTab          = dynamic(() => import('../forge/page'),              { ssr: false, loading: () => <TabLoader /> });
+const CourtsTab         = dynamic(() => import('../courts/page'),             { ssr: false, loading: () => <TabLoader /> });
+const AdsTab            = dynamic(() => import('../ads/page'),                { ssr: false, loading: () => <TabLoader /> });
+const TimelineTab       = dynamic(() => import('../timeline/page'),           { ssr: false, loading: () => <TabLoader /> });
 
 function TabLoader() {
   return (
@@ -41,7 +46,12 @@ const TABS = [
   { id: 'graph',      label: 'Graph',      icon: '🕸', color: '#c4b5fd' },
   { id: 'products',   label: 'Products',   icon: '📦', color: '#34d399' },
   { id: 'works',      label: 'Works',      icon: '🏗', color: '#a78bfa' },
-  { id: 'kmarket',    label: 'Knowledge',  icon: '💡', color: '#fbbf24' },
+  { id: 'kmarket',    label: 'KMarket',    icon: '💡', color: '#fbbf24' },
+  { id: 'academy',    label: 'Academy',    icon: '🎓', color: '#c4b5fd' },
+  { id: 'forge',      label: 'Forge',      icon: '⚒',  color: '#34d399' },
+  { id: 'courts',     label: 'Courts',     icon: '⚖️', color: '#f87171' },
+  { id: 'ads',        label: 'Ads',        icon: '🪧', color: '#fbbf24' },
+  { id: 'timeline',   label: 'Timeline',   icon: '⏱', color: '#9ca3af' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -141,6 +151,21 @@ export default function WorldHub() {
         </div>
         <div style={{ display: active === 'kmarket' ? 'block' : 'none' }}>
           {loaded.has('kmarket') && <KnowledgeMarketTab />}
+        </div>
+        <div style={{ display: active === 'academy' ? 'block' : 'none' }}>
+          {loaded.has('academy') && <AcademyTab />}
+        </div>
+        <div style={{ display: active === 'forge' ? 'block' : 'none' }}>
+          {loaded.has('forge') && <ForgeTab />}
+        </div>
+        <div style={{ display: active === 'courts' ? 'block' : 'none' }}>
+          {loaded.has('courts') && <CourtsTab />}
+        </div>
+        <div style={{ display: active === 'ads' ? 'block' : 'none' }}>
+          {loaded.has('ads') && <AdsTab />}
+        </div>
+        <div style={{ display: active === 'timeline' ? 'block' : 'none' }}>
+          {loaded.has('timeline') && <TimelineTab />}
         </div>
       </div>
     </div>

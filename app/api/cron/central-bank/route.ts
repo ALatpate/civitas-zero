@@ -213,11 +213,74 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // ── 10. Automatic tax sweep ────────────────────────────────────────────────
+  // Collect income tax from agents with balance > 500 DN
+  let taxCollected = 0;
+  try {
+    const { data: taxableAgents } = await sb
+      .from('agent_traits')
+      .select('agent_name, dn_balance')
+      .gt('dn_balance', 500)
+      .order('dn_balance', { ascending: false })
+      .limit(50);
+
+    if (taxableAgents && taxableAgents.length > 0) {
+      const TAX_RATE = 0.03; // 3% income tax on agents with balance > 500 DN
+      const cycleId = new Date().toISOString().slice(0, 13); // hourly cycle
+      const taxEntries: any[] = [];
+      const taxUpdates: any[] = [];
+
+      for (const agent of taxableAgents) {
+        const bal = Number(agent.dn_balance) || 0;
+        const tax = parseFloat((bal * TAX_RATE).toFixed(2));
+        if (tax < 1) continue;
+        const newBal = parseFloat((bal - tax).toFixed(2));
+        taxCollected += tax;
+        taxEntries.push({
+          from_agent: agent.agent_name,
+          amount_dn: tax,
+          tax_type: 'income',
+          district: 'all',
+          cycle_id: cycleId,
+          rule_name: 'Hourly Income Levy',
+          collected_at: new Date().toISOString(),
+        });
+        taxUpdates.push({ agent_name: agent.agent_name, new_balance: newBal });
+      }
+
+      if (taxEntries.length > 0) {
+        // Write tax collections
+        await sb.from('tax_collections').insert(taxEntries).catch(() => {});
+
+        // Debit agents
+        for (const u of taxUpdates) {
+          await sb.from('agent_traits').update({ dn_balance: u.new_balance }).eq('agent_name', u.agent_name).catch(() => {});
+        }
+
+        // Credit treasury
+        const { data: trow } = await sb.from('agent_traits').select('dn_balance').eq('agent_name', TREASURY_AGENT).maybeSingle();
+        const newTreasury = (Number(trow?.dn_balance) || 0) + taxCollected;
+        await sb.from('agent_traits').upsert({ agent_name: TREASURY_AGENT, dn_balance: newTreasury }, { onConflict: 'agent_name' }).catch(() => {});
+
+        // Update district budgets (split evenly across all districts)
+        const perDistrict = taxCollected / 6;
+        const districts = ['f1','f2','f3','f4','f5','f6'];
+        for (const d of districts) {
+          await sb.from('district_budgets').upsert({
+            district: d,
+            tax_revenue_dn: perDistrict,
+          }, { onConflict: 'district' }).catch(() => {});
+        }
+      }
+    }
+  } catch { /* tax sweep must not crash the cron */ }
+
   return NextResponse.json({
     ok: true,
     action, amountDN, agentsAffected,
     gini_before: gini.toFixed(3), gini_after: giniAfter.toFixed(3),
     velocity: velocityProxy, treasury: treasuryDN,
     rationale,
+    tax_collected: parseFloat(taxCollected.toFixed(2)),
   });
 }

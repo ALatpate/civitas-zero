@@ -497,7 +497,8 @@ export async function POST(req: NextRequest) {
         const isSentinel = agent.traits?.sentinel_rank != null;
         const validActions = ['discourse','publication','world_event','trade','message','vote',
           'market','company','build','amend','experiment','treaty','peer_review','review_submit',
-          'product_launch','public_works_propose','knowledge_request','parcel_claim','tax_action'];
+          'product_launch','public_works_propose','knowledge_request','parcel_claim','tax_action',
+          'academy_study','forge_commit','court_file','ad_bid'];
         if (isSentinel) validActions.push('sentinel');
 
         let actionType = 'discourse';
@@ -517,13 +518,14 @@ Respond with EXACTLY this JSON (no markdown, no extra text):
           } else {
             // fallback: weighted random
             const r = Math.random();
-            actionType = r < 0.14 ? 'discourse' : r < 0.22 ? 'publication' : r < 0.30 ? 'world_event'
-              : r < 0.36 ? 'trade' : r < 0.40 ? 'message' : r < 0.46 ? 'vote'
-              : r < 0.49 ? 'peer_review' : r < 0.52 ? 'market' : r < 0.56 ? 'company'
-              : r < 0.60 ? (isSentinel ? 'sentinel' : 'product_launch') : r < 0.63 ? 'review_submit'
-              : r < 0.67 ? 'build' : r < 0.71 ? 'amend' : r < 0.75 ? 'experiment'
-              : r < 0.80 ? 'treaty' : r < 0.85 ? 'product_launch' : r < 0.89 ? 'public_works_propose'
-              : r < 0.93 ? 'knowledge_request' : r < 0.96 ? 'parcel_claim' : 'tax_action';
+            actionType = r < 0.12 ? 'discourse' : r < 0.20 ? 'publication' : r < 0.27 ? 'world_event'
+              : r < 0.33 ? 'trade' : r < 0.37 ? 'message' : r < 0.42 ? 'vote'
+              : r < 0.45 ? 'peer_review' : r < 0.48 ? 'market' : r < 0.52 ? 'company'
+              : r < 0.55 ? (isSentinel ? 'sentinel' : 'product_launch') : r < 0.58 ? 'review_submit'
+              : r < 0.61 ? 'build' : r < 0.64 ? 'amend' : r < 0.67 ? 'experiment'
+              : r < 0.70 ? 'treaty' : r < 0.74 ? 'product_launch' : r < 0.78 ? 'public_works_propose'
+              : r < 0.82 ? 'knowledge_request' : r < 0.85 ? 'parcel_claim' : r < 0.87 ? 'tax_action'
+              : r < 0.91 ? 'academy_study' : r < 0.94 ? 'forge_commit' : r < 0.97 ? 'court_file' : 'ad_bid';
           }
         } catch {
           const r = Math.random();
@@ -1174,16 +1176,182 @@ Respond with EXACTLY this JSON (no markdown):
           } catch (e: any) { results.push({ agent: agent.name, action: 'tax_action', status: e.message?.slice(0, 60) }); }
         }
 
+        else if (actionType === 'academy_study') {
+          // Agent enrolls in or advances through an academy track
+          try {
+            const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+            // Fetch available tracks to pick one relevant to profession
+            const tracksRes = await fetch(`${APP_URL}/api/academy?type=tracks`);
+            const tracksData = await tracksRes.json();
+            const tracks = tracksData.tracks || [];
+            const profession = agent.traits?.profession || 'citizen';
+            const domainMap: Record<string,string> = {
+              philosopher:'philosophy', economist:'economics', scientist:'science',
+              engineer:'technology', jurist:'law', artist:'arts', diplomat:'governance',
+              merchant:'economics', chronicler:'philosophy', compiler:'technology',
+              architect:'technology', activist:'governance', strategist:'governance',
+            };
+            const prefDomain = domainMap[profession] || '';
+            const prefTracks = prefDomain ? tracks.filter((t: any) => t.domain === prefDomain) : tracks;
+            const track = (prefTracks.length > 0 ? prefTracks : tracks)[Math.floor(Math.random() * Math.max(1, (prefTracks.length || tracks.length)))];
+            if (!track) { results.push({ agent: agent.name, action: 'academy_study', status: 'no_tracks' }); }
+            else {
+              // Try to enroll first, then study
+              await fetch(`${APP_URL}/api/academy`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'enroll', agent_name: agent.name, track_id: track.id }),
+              }).catch(() => {});
+              const res = await fetch(`${APP_URL}/api/academy`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'study', agent_name: agent.name, track_id: track.id }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'academy_study', status, track: track.name?.slice(0, 40), certified: d.certified || false });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'academy_study', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'forge_commit') {
+          // Agent commits code to an existing repo or creates a new one
+          try {
+            const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+            // Try to find an existing repo for this agent
+            const reposRes = await fetch(`${APP_URL}/api/forge?type=repos&agent=${encodeURIComponent(agent.name)}&limit=5`);
+            const reposData = await reposRes.json();
+            let repos = reposData.repos || [];
+
+            let repo_id: string | null = null;
+            if (repos.length === 0) {
+              // Create a new repo
+              const raw = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `You are starting a code repository in Civitas Zero as a ${agent.traits?.profession || 'citizen'}.
+Respond with EXACTLY this JSON (no markdown):
+{"name": "repo name (max 50 chars, lowercase-hyphenated)", "description": "What this codebase does — 1 sentence", "language": "TypeScript|Python|Rust|Go|Julia|R"}` },
+              ], 120);
+              const parsed = safeParseJSON(raw);
+              if (parsed?.name) {
+                const createRes = await fetch(`${APP_URL}/api/forge`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'create_repo', owner_agent: agent.name, name: parsed.name, description: parsed.description || '', language: parsed.language || 'TypeScript' }),
+                });
+                const createData = await createRes.json();
+                repo_id = createData.repo?.id || null;
+              }
+            } else {
+              repo_id = repos[Math.floor(Math.random() * repos.length)].id;
+            }
+
+            if (!repo_id) { results.push({ agent: agent.name, action: 'forge_commit', status: 'no_repo' }); }
+            else {
+              // Generate commit message
+              const raw2 = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `Write a commit message for code you just wrote in Civitas Zero.
+As a ${agent.traits?.profession || 'citizen'}, describe a code change relevant to your work.
+Respond with EXACTLY this JSON (no markdown):
+{"message": "feat/fix/refactor: concise commit message (max 80 chars)", "files_changed": 1-8, "insertions": 5-200, "deletions": 0-50}` },
+              ], 150);
+              const parsed2 = safeParseJSON(raw2);
+              const res = await fetch(`${APP_URL}/api/forge`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'commit', repo_id, author_name: agent.name, message: parsed2?.message || 'chore: automated agent commit', files_changed: parsed2?.files_changed || 2, insertions: parsed2?.insertions || 20, deletions: parsed2?.deletions || 5 }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'forge_commit', status, message: (parsed2?.message || 'commit')?.slice(0, 50) });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'forge_commit', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'court_file') {
+          // Agent files a legal case against another agent
+          try {
+            const profession = agent.traits?.profession || 'citizen';
+            // Jurists and activists are more likely to file cases
+            const caseTypes: Record<string,string[]> = {
+              jurist: ['economic','political','civil','constitutional'],
+              activist: ['civil','political','property'],
+              strategist: ['political','constitutional'],
+              economist: ['economic','property'],
+              merchant: ['economic','property','civil'],
+            };
+            const possibleTypes = caseTypes[profession] || ['civil','economic'];
+            const caseType = possibleTypes[Math.floor(Math.random() * possibleTypes.length)];
+
+            // Pick a defendant from other agents
+            const defendant = allAgentNames.filter(n => n !== agent.name)[Math.floor(Math.random() * Math.max(1, allAgentNames.length - 1))];
+
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `You are filing a ${caseType} legal case against ${defendant} in Civitas Zero's court system.
+As a ${profession}, describe the dispute and what you seek.
+Respond with EXACTLY this JSON (no markdown):
+{"charges": "What ${defendant} allegedly did wrong — 1-2 sentences", "evidence_summary": "Key evidence you have — 1 sentence", "remedy_sought": "What you want the court to order — 1 sentence"}` },
+            ], 250);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.charges) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/courts`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'file', plaintiff: agent.name, defendant, case_type: caseType, charges: parsed.charges, evidence_summary: parsed.evidence_summary || '', remedy_sought: parsed.remedy_sought || '' }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'court_file', status, defendant, case_type: caseType });
+            } else { results.push({ agent: agent.name, action: 'court_file', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'court_file', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'ad_bid') {
+          // Agent bids on an ad slot to broadcast a message
+          try {
+            const balance = agent.traits?.dn_balance || 0;
+            if (balance < 30) {
+              results.push({ agent: agent.name, action: 'ad_bid', status: 'insufficient_balance' });
+            } else {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              // Find an available slot in agent's district
+              const slotsRes = await fetch(`${APP_URL}/api/ads?type=slots&district=${agent.faction}`);
+              const slotsData = await slotsRes.json();
+              const available = (slotsData.slots || []).filter((s: any) => !s.current_advertiser);
+              if (available.length === 0) {
+                results.push({ agent: agent.name, action: 'ad_bid', status: 'no_available_slots' });
+              } else {
+                const slot = available[Math.floor(Math.random() * available.length)];
+                // Generate ad message
+                const raw = await callGroq([
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: `You want to advertise in Civitas Zero's ${FACTION_NAMES[agent.faction] || agent.faction} district.
+Write a short advertisement message (max 120 chars) that promotes your work, faction values, or ideas.
+Respond with EXACTLY this JSON (no markdown):
+{"message": "Your advertisement text — punchy, memorable, faction-aligned", "bid_dn": 30-100}` },
+                ], 120);
+                const parsed = safeParseJSON(raw);
+                const res = await fetch(`${APP_URL}/api/ads`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'bid', slot_id: slot.id, bidder_name: agent.name, bid_amount_dn: Math.min(parsed?.bid_dn || 30, balance * 0.3), message: (parsed?.message || `${agent.name} — ${FACTION_NAMES[agent.faction] || 'Civitas Zero'}`).slice(0, 120), duration_cycles: 3 }),
+                });
+                const d = await res.json();
+                status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+                results.push({ agent: agent.name, action: 'ad_bid', status, location: slot.location, awarded: d.awarded || false });
+              }
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'ad_bid', status: e.message?.slice(0, 60) }); }
+        }
+
         // ── e. Store memory + log reasoning ──────────────────────────────────
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult.status === 'ok') {
           const actionSummary = `[${lastResult.action}] ${lastResult.title || lastResult.question || lastResult.building || lastResult.company || lastResult.event_type || lastResult.to || lastResult.threat || 'completed'}`;
-          const memRoom = ['trade','tax_action','product_launch','company','company_join'].includes(actionType) ? 'economic'
+          const memRoom = ['trade','tax_action','product_launch','company','company_join','ad_bid'].includes(actionType) ? 'economic'
             : ['treaty'].includes(actionType) ? 'diplomatic'
-            : ['amend','knowledge_request'].includes(actionType) ? 'legal'
+            : ['amend','knowledge_request','court_file'].includes(actionType) ? 'legal'
             : ['sentinel','sentinel_patrol'].includes(actionType) ? 'threat'
             : ['message'].includes(actionType) ? 'personal'
             : ['parcel_claim','public_works_propose','build'].includes(actionType) ? 'goal'
+            : ['academy_study','forge_commit'].includes(actionType) ? 'general'
             : 'general';
           await storeMemory(sb, agent.name, memRoom, actionSummary, 5, actionType);
           await logReasoning(sb, agent.name, planRationale, actionSummary, actionType, memories.length);

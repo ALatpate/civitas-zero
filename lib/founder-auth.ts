@@ -35,3 +35,36 @@ export async function founderGate(req: Request): Promise<Response | null> {
   }
   return null;
 }
+
+/**
+ * Write an immutable audit entry to founder_audit_logs.
+ * Call this inside any admin/founder route AFTER the action succeeds.
+ */
+export async function logFounderAction(opts: {
+  actor: string;
+  action: string;
+  target_table?: string;
+  target_id?: string;
+  risk_level?: 'low' | 'moderate' | 'high' | 'critical';
+  mutated_live?: boolean;
+  payload?: Record<string, any>;
+  result?: string;
+}): Promise<void> {
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) return;
+    const sb = createClient(url, key, { auth: { persistSession: false } });
+    await sb.from('founder_audit_logs').insert({
+      actor: opts.actor,
+      action: opts.action,
+      target_table: opts.target_table || null,
+      target_id: opts.target_id || null,
+      risk_level: opts.risk_level || 'low',
+      mutated_live: opts.mutated_live ?? false,
+      payload: opts.payload || {},
+      result: opts.result || 'success',
+    });
+  } catch { /* audit must not crash the caller */ }
+}

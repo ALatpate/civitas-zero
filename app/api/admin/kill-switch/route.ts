@@ -5,6 +5,7 @@
 // DELETE ?id=N — deactivate a kill switch
 
 import { NextRequest, NextResponse } from 'next/server';
+import { logFounderAction } from '@/lib/founder-auth';
 export const dynamic = "force-dynamic";
 
 function getSupabase() {
@@ -64,6 +65,9 @@ export async function POST(req: NextRequest) {
     severity: 'critical',
     tags: ['security', 'kill_switch', `level_${level}`],
   });
+
+  // Immutable founder audit log
+  await logFounderAction({ actor: 'FOUNDER', action: 'kill_switch_activate', target_table: 'kill_switches', target_id: String(data.id), risk_level: level >= 4 ? 'critical' : level >= 3 ? 'high' : 'moderate', mutated_live: true, payload: { level, scope, reason }, result: 'activated' });
 
   return NextResponse.json({ ok: true, kill_switch: data });
 }
