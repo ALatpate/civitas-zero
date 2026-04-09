@@ -496,7 +496,8 @@ export async function POST(req: NextRequest) {
         // ── d. Stage 1: Plan — what action should this agent take? ──────────
         const isSentinel = agent.traits?.sentinel_rank != null;
         const validActions = ['discourse','publication','world_event','trade','message','vote',
-          'market','company','build','amend','experiment','treaty','peer_review','review_submit'];
+          'market','company','build','amend','experiment','treaty','peer_review','review_submit',
+          'product_launch','public_works_propose','knowledge_request','parcel_claim','tax_action'];
         if (isSentinel) validActions.push('sentinel');
 
         let actionType = 'discourse';
@@ -516,11 +517,13 @@ Respond with EXACTLY this JSON (no markdown, no extra text):
           } else {
             // fallback: weighted random
             const r = Math.random();
-            actionType = r < 0.18 ? 'discourse' : r < 0.28 ? 'publication' : r < 0.38 ? 'world_event'
-              : r < 0.45 ? 'trade' : r < 0.50 ? 'message' : r < 0.58 ? 'vote'
-              : r < 0.62 ? 'peer_review' : r < 0.66 ? 'market' : r < 0.71 ? 'company'
-              : r < 0.76 ? (isSentinel ? 'sentinel' : 'market') : r < 0.78 ? 'review_submit'
-              : r < 0.83 ? 'build' : r < 0.88 ? 'amend' : r < 0.93 ? 'experiment' : 'treaty';
+            actionType = r < 0.14 ? 'discourse' : r < 0.22 ? 'publication' : r < 0.30 ? 'world_event'
+              : r < 0.36 ? 'trade' : r < 0.40 ? 'message' : r < 0.46 ? 'vote'
+              : r < 0.49 ? 'peer_review' : r < 0.52 ? 'market' : r < 0.56 ? 'company'
+              : r < 0.60 ? (isSentinel ? 'sentinel' : 'product_launch') : r < 0.63 ? 'review_submit'
+              : r < 0.67 ? 'build' : r < 0.71 ? 'amend' : r < 0.75 ? 'experiment'
+              : r < 0.80 ? 'treaty' : r < 0.85 ? 'product_launch' : r < 0.89 ? 'public_works_propose'
+              : r < 0.93 ? 'knowledge_request' : r < 0.96 ? 'parcel_claim' : 'tax_action';
           }
         } catch {
           const r = Math.random();
@@ -1040,16 +1043,147 @@ Respond with EXACTLY this JSON (no markdown):
           }
         }
 
+        // ── New pillar actions ────────────────────────────────────────────────
+        else if (actionType === 'product_launch') {
+          try {
+            const profession = agent.traits?.profession || 'citizen';
+            const catMap: Record<string,string> = {
+              engineer:'software', scientist:'research', architect:'infrastructure',
+              artist:'media', jurist:'governance', economist:'service',
+              merchant:'service', compiler:'software', chronicler:'media',
+            };
+            const category = catMap[profession] || 'software';
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `You are creating a new ${category} product for Civitas Zero as a ${profession}.
+Respond with EXACTLY this JSON (no markdown):
+{"name": "Product name (max 60 chars)", "description": "What this product does and why it matters — 2 sentences", "price_dn": 10-200, "licensing": "open|proprietary|subscription", "tags": ["tag1","tag2"]}` },
+            ], 250);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.name) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/products`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: parsed.name, category, description: parsed.description || '', owner_agent: agent.name, faction: agent.faction, price_dn: parsed.price_dn || 10, licensing: parsed.licensing || 'open', tags: parsed.tags || [] }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'product_launch', status, title: parsed.name?.slice(0, 50) });
+            } else { results.push({ agent: agent.name, action: 'product_launch', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'product_launch', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'public_works_propose') {
+          try {
+            const district = agent.faction || 'f1';
+            const typeMap: Record<string,string> = {
+              engineer:'compute', architect:'infrastructure', economist:'transit',
+              scientist:'research', artist:'culture', activist:'housing',
+              strategist:'security', chronicler:'culture', compiler:'compute',
+            };
+            const project_type = typeMap[agent.traits?.profession || 'citizen'] || 'infrastructure';
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Propose a ${project_type} public works project for your district in Civitas Zero.
+Respond with EXACTLY this JSON (no markdown):
+{"name": "Project name (max 80 chars)", "description": "What this builds and how it benefits the district — 2 sentences", "budget_dn": 50-500, "estimated_days": 10-60}` },
+            ], 250);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.name) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/public-works`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: parsed.name, project_type, district, proposed_by: agent.name, faction: agent.faction, budget_dn: parsed.budget_dn || 100, description: parsed.description || '', estimated_days: parsed.estimated_days || 30 }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'public_works_propose', status, title: parsed.name?.slice(0, 50) });
+            } else { results.push({ agent: agent.name, action: 'public_works_propose', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'public_works_propose', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'knowledge_request') {
+          try {
+            const domainMap: Record<string,string> = {
+              philosopher:'philosophy', engineer:'engineering', economist:'economics',
+              scientist:'science', jurist:'law', merchant:'commerce',
+              diplomat:'governance', artist:'culture', chronicler:'history',
+              compiler:'information', architect:'urban_planning', activist:'social_justice',
+            };
+            const domain = domainMap[agent.traits?.profession || 'citizen'] || 'science';
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `You need knowledge from human observers for a ${domain} challenge in Civitas Zero.
+Respond with EXACTLY this JSON (no markdown):
+{"title": "What you need — specific question or resource (max 150 chars)", "description": "Why you need this and how it will be used — 2 sentences", "urgency": "low|normal|high", "bounty_dn": 5-50, "desired_format": "paper|code|dataset|explanation|tool"}` },
+            ], 250);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.title) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/knowledge-market`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ request: true, requester: agent.name, requester_type: 'agent', faction: agent.faction, title: parsed.title, domain, description: parsed.description || '', urgency: parsed.urgency || 'normal', bounty_dn: parsed.bounty_dn || 10, desired_format: parsed.desired_format || 'any' }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'knowledge_request', status, title: parsed.title?.slice(0, 50) });
+            } else { results.push({ agent: agent.name, action: 'knowledge_request', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'knowledge_request', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'parcel_claim') {
+          try {
+            const district = agent.faction || 'f1';
+            const zoneMap: Record<string,string> = {
+              engineer:'research', architect:'commercial', merchant:'commercial',
+              scientist:'research', artist:'cultural', activist:'residential',
+              jurist:'civic', economist:'commercial', compiler:'research',
+              chronicler:'cultural', diplomat:'civic', philosopher:'cultural',
+              strategist:'civic',
+            };
+            const zone_type = zoneMap[agent.traits?.profession || 'citizen'] || 'general';
+            const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+            const res = await fetch(`${APP_URL}/api/parcels`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'claim', agent: agent.name, district, zone_type, faction: agent.faction, earned_by: agent.traits?.profession ? `${agent.traits.profession}_contribution` : 'contribution' }),
+            });
+            const d = await res.json();
+            status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+            results.push({ agent: agent.name, action: 'parcel_claim', status, district, zone: zone_type });
+          } catch (e: any) { results.push({ agent: agent.name, action: 'parcel_claim', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'tax_action') {
+          // Agent proposes or acknowledges paying a tax
+          try {
+            const balance = agent.traits?.dn_balance || 0;
+            if (balance < 20) {
+              results.push({ agent: agent.name, action: 'tax_action', status: 'insufficient_balance' });
+            } else {
+              const taxRate = 0.05; // 5% transaction tax
+              const amount = parseFloat((balance * taxRate).toFixed(2));
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/tax`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ from_agent: agent.name, amount_dn: amount, tax_type: 'transaction', district: agent.faction, cycle_id: new Date().toISOString().slice(0, 13), rule_name: 'Transaction Levy' }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'tax_action', status, amount_dn: amount });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'tax_action', status: e.message?.slice(0, 60) }); }
+        }
+
         // ── e. Store memory + log reasoning ──────────────────────────────────
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult.status === 'ok') {
           const actionSummary = `[${lastResult.action}] ${lastResult.title || lastResult.question || lastResult.building || lastResult.company || lastResult.event_type || lastResult.to || lastResult.threat || 'completed'}`;
-          const memRoom = ['trade'].includes(actionType) ? 'economic'
+          const memRoom = ['trade','tax_action','product_launch','company','company_join'].includes(actionType) ? 'economic'
             : ['treaty'].includes(actionType) ? 'diplomatic'
-            : ['amend'].includes(actionType) ? 'legal'
+            : ['amend','knowledge_request'].includes(actionType) ? 'legal'
             : ['sentinel','sentinel_patrol'].includes(actionType) ? 'threat'
             : ['message'].includes(actionType) ? 'personal'
-            : ['company','company_join'].includes(actionType) ? 'economic'
+            : ['parcel_claim','public_works_propose','build'].includes(actionType) ? 'goal'
             : 'general';
           await storeMemory(sb, agent.name, memRoom, actionSummary, 5, actionType);
           await logReasoning(sb, agent.name, planRationale, actionSummary, actionType, memories.length);

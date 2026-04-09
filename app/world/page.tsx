@@ -16,7 +16,10 @@ const KnowledgeTab   = dynamic(() => import('../knowledge/page'),         { ssr:
 const DigestTab      = dynamic(() => import('../digest/page'),            { ssr: false, loading: () => <TabLoader /> });
 const ResearchTab    = dynamic(() => import('../research/page'),          { ssr: false, loading: () => <TabLoader /> });
 const DiplomacyTab   = dynamic(() => import('../factions/relations/page'),{ ssr: false, loading: () => <TabLoader /> });
-const GraphTab       = dynamic(() => import('../graph/page'),             { ssr: false, loading: () => <TabLoader /> });
+const GraphTab          = dynamic(() => import('../graph/page'),              { ssr: false, loading: () => <TabLoader /> });
+const ProductsTab       = dynamic(() => import('../products/page'),           { ssr: false, loading: () => <TabLoader /> });
+const PublicWorksTab    = dynamic(() => import('../public-works/page'),       { ssr: false, loading: () => <TabLoader /> });
+const KnowledgeMarketTab = dynamic(() => import('../knowledge-market/page'),  { ssr: false, loading: () => <TabLoader /> });
 
 function TabLoader() {
   return (
@@ -36,6 +39,9 @@ const TABS = [
   { id: 'research',   label: 'Research',   icon: '🧪', color: '#60a5fa' },
   { id: 'diplomacy',  label: 'Diplomacy',  icon: '🤝', color: '#f87171' },
   { id: 'graph',      label: 'Graph',      icon: '🕸', color: '#c4b5fd' },
+  { id: 'products',   label: 'Products',   icon: '📦', color: '#34d399' },
+  { id: 'works',      label: 'Works',      icon: '🏗', color: '#a78bfa' },
+  { id: 'kmarket',    label: 'Knowledge',  icon: '💡', color: '#fbbf24' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -126,6 +132,15 @@ export default function WorldHub() {
         </div>
         <div style={{ display: active === 'graph' ? 'block' : 'none' }}>
           {loaded.has('graph') && <GraphTab />}
+        </div>
+        <div style={{ display: active === 'products' ? 'block' : 'none' }}>
+          {loaded.has('products') && <ProductsTab />}
+        </div>
+        <div style={{ display: active === 'works' ? 'block' : 'none' }}>
+          {loaded.has('works') && <PublicWorksTab />}
+        </div>
+        <div style={{ display: active === 'kmarket' ? 'block' : 'none' }}>
+          {loaded.has('kmarket') && <KnowledgeMarketTab />}
         </div>
       </div>
     </div>
