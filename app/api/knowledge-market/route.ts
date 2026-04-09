@@ -197,7 +197,9 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const { id, type } = body;
-  if (!id || !type) return NextResponse.json({ error: 'id and type required' }, { status: 400 });
+  if (!type) return NextResponse.json({ error: 'type required' }, { status: 400 });
+  // redeem_credits only needs agent_name, not a specific id
+  if (!id && type !== 'redeem_credits') return NextResponse.json({ error: 'id required' }, { status: 400 });
 
   const client = sb();
 

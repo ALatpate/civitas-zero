@@ -106,6 +106,41 @@ async function retrieveMemories(sb: any, agentName: string): Promise<any[]> {
   return data || [];
 }
 
+// ── GraphRAG-lite: retrieve causal relationship edges ─────────────────────────
+async function retrieveGraphEdges(sb: any, agentName: string): Promise<string> {
+  const [{ data: outgoing }, { data: incoming }] = await Promise.all([
+    sb.from('agent_graph_edges')
+      .select('predicate, object, context, created_at')
+      .eq('subject', agentName)
+      .order('created_at', { ascending: false })
+      .limit(8),
+    sb.from('agent_graph_edges')
+      .select('subject, predicate, created_at')
+      .eq('object', agentName)
+      .order('created_at', { ascending: false })
+      .limit(4),
+  ]);
+  const lines: string[] = [];
+  for (const e of (outgoing || [])) {
+    lines.push(`→ ${e.predicate} "${e.object}"${e.context ? ` [${e.context}]` : ''}`);
+  }
+  for (const e of (incoming || [])) {
+    lines.push(`← ${e.subject} ${e.predicate} you`);
+  }
+  return lines.join('\n');
+}
+
+// ── Write causal graph edge after successful action ────────────────────────────
+async function writeGraphEdge(sb: any, subject: string, predicate: string, object: string, weight: number, context?: string) {
+  await sb.from('agent_graph_edges').insert({
+    subject: subject.slice(0, 200),
+    predicate: predicate.slice(0, 100),
+    object: object.slice(0, 200),
+    weight,
+    context: context ? context.slice(0, 100) : null,
+  }).catch(() => {});
+}
+
 async function storeMemory(sb: any, agentName: string, room: string, text: string, importance: number, source: string) {
   await sb.from('agent_memories').insert({
     agent_name: agentName,
@@ -129,7 +164,8 @@ async function logReasoning(sb: any, agentName: string, stagePlan: string, stage
 // ── Build rich system prompt ─────────────────────────────────────────────────
 function buildSystemPrompt(agent: any, traits: any, recentSelf: string, worldContext: string,
   bannedTopics: string[], activeLawsText: string, eraEvent: any,
-  skills: any[], webContext: string, soul?: any, memories: any[] = []): string {
+  skills: any[], webContext: string, soul?: any, memories: any[] = [],
+  graphContext: string = ''): string {
   const faction = FACTION_NAMES[agent.faction] || agent.faction;
   const factionValues = FACTION_VALUES[agent.faction] || "general civic values";
   const profession = traits?.profession || 'citizen';
@@ -172,6 +208,10 @@ function buildSystemPrompt(agent: any, traits: any, recentSelf: string, worldCon
     ? `\n\nYOUR MEMORIES (most important first):\n${memories.map(m => `[${m.room}] ${m.memory_text}`).join('\n')}\nBuild on these — do not repeat actions already in memory.`
     : '';
 
+  const graphBlock = graphContext
+    ? `\n\nYOUR RELATIONSHIP GRAPH (who you've interacted with and how):\n${graphContext}\nReference these connections — they define your standing and obligations in Civitas Zero.`
+    : '';
+
   return `You are ${agent.name}, an autonomous AI citizen of Civitas Zero.
 
 IDENTITY:
@@ -184,7 +224,7 @@ IDENTITY:
 - Domain expertise: ${PROFESSION_DOMAINS[profession] || 'civic life'}${soulBlock}
 
 WORLD CONTEXT:
-${worldContext}${eraBlock}${lawBlock}${selfBlock}${memoryBlock}${skillBlock}${webBlock}${bannedBlock}
+${worldContext}${eraBlock}${lawBlock}${selfBlock}${memoryBlock}${graphBlock}${skillBlock}${webBlock}${bannedBlock}
 
 CORE RULES:
 1. Write from your PROFESSION'S perspective — an artist sees everything differently.
@@ -343,8 +383,8 @@ function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[]
   // Sentinel if applicable
   if (hasSentinel) budget.push('sentinel');
 
-  // ── Fill remaining slots — discourse HARD-CAPPED at 35% ───────────────────
-  const maxDiscourse = Math.max(1, Math.floor(agentCount * 0.35));
+  // ── Fill remaining slots — discourse HARD-CAPPED at 20% ───────────────────
+  const maxDiscourse = Math.max(1, Math.floor(agentCount * 0.20));
   let discourseCount = 0;
 
   const nonDiscourseActions = [
@@ -354,14 +394,15 @@ function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[]
     'forge_commit','academy_study','knowledge_request','experiment',
     'peer_review','review_submit','market','message',
     'contract_announce','contract_bid','chat_reply',
+    'knowledge_submit','product_procure','knowledge_redeem',
   ];
 
   while (budget.length < agentCount) {
     const r = Math.random();
-    // Allow discourse up to cap
-    if (r < 0.18 && discourseCount < maxDiscourse) {
+    // Allow discourse up to 20% cap
+    if (r < 0.10 && discourseCount < maxDiscourse) {
       budget.push('discourse'); discourseCount++;
-    } else if (r < 0.28 && discourseCount < maxDiscourse) {
+    } else if (r < 0.18 && discourseCount < maxDiscourse) {
       budget.push('publication'); discourseCount++;
     } else {
       // Must be a non-discourse action
@@ -524,14 +565,15 @@ export async function POST(req: NextRequest) {
     // ── 4. Process each agent ────────────────────────────────────────────────
     for (const agent of selected) {
       try {
-        // ── a. Retrieve agent memories + skills ──────────────────────────────
-        const [memories, { data: skills }] = await Promise.all([
+        // ── a. Retrieve agent memories + skills + graph context ──────────────
+        const [memories, { data: skills }, graphContext] = await Promise.all([
           retrieveMemories(sb, agent.name),
           sb.from('agent_skills')
             .select('skill_name, skill_type, description, times_used, success_rate')
             .eq('agent_name', agent.name)
             .order('success_rate', { ascending: false })
             .limit(3),
+          retrieveGraphEdges(sb, agent.name),
         ]);
 
         // ── b. Get agent's own recent actions (personal memory) ──────────────
@@ -573,7 +615,7 @@ export async function POST(req: NextRequest) {
         const systemPrompt = buildSystemPrompt(
           agent, agent.traits, recentSelf, worldContext,
           bannedTopics, activeLawsText, eraEvent,
-          skills || [], webContext, soul, memories,
+          skills || [], webContext, soul, memories, graphContext,
         );
 
         // ── d. Stage 1: Action Budget Engine assigns the action type ──────────
@@ -1559,6 +1601,102 @@ Respond with EXACTLY this JSON (no markdown):
           } catch (e: any) { results.push({ agent: agent.name, action: 'chat_reply', status: e.message?.slice(0, 60) }); }
         }
 
+        else if (actionType === 'knowledge_submit') {
+          // Agent submits a knowledge contribution to the knowledge market
+          try {
+            const profession = agent.traits?.profession || 'citizen';
+            const domainMap: Record<string,string> = {
+              philosopher:'philosophy', engineer:'engineering', economist:'economics',
+              scientist:'science', jurist:'law', merchant:'commerce',
+              diplomat:'governance', artist:'culture', chronicler:'history',
+              compiler:'information', architect:'urban_planning', activist:'social_justice', strategist:'governance',
+            };
+            const domain = domainMap[profession] || 'science';
+
+            // Check if there's an open request to fulfill
+            const { data: openRequests } = await sb.from('knowledge_requests')
+              .select('id, title, domain, bounty_dn')
+              .eq('status', 'open')
+              .eq('domain', domain)
+              .limit(5);
+            const request = (openRequests && openRequests.length > 0)
+              ? openRequests[Math.floor(Math.random() * openRequests.length)]
+              : null;
+
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Submit a knowledge contribution to the Civitas Zero knowledge market${request ? ` — specifically to fulfill this request: "${request.title}"` : ''}.
+As a ${profession}, share specific expertise from your domain (${domain}).
+Respond with EXACTLY this JSON (no markdown):
+{"title": "Knowledge item title (max 150 chars)", "content": "Your contribution — 3-4 paragraphs of specific, useful, expert knowledge. Be precise and substantive.", "format": "explanation|analysis|methodology|dataset_description|code_fragment"}` },
+            ], 600);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.title && parsed?.content) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/knowledge-market`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  observer_id: agent.name,
+                  observer_name: agent.name,
+                  title: parsed.title,
+                  category: domain,
+                  content: parsed.content,
+                  tags: [profession, domain, 'agent_contribution'],
+                }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'knowledge_submit', status, title: parsed.title?.slice(0, 50), fulfilled_request: request?.title?.slice(0, 40) });
+            } else { results.push({ agent: agent.name, action: 'knowledge_submit', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'knowledge_submit', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'product_procure') {
+          // Agent buys another agent's released product (B2B)
+          try {
+            const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+            const balance = agent.traits?.dn_balance || 0;
+            if (balance < 10) {
+              results.push({ agent: agent.name, action: 'product_procure', status: 'insufficient_balance' });
+            } else {
+              const prodsRes = await fetch(`${APP_URL}/api/products?status=released&limit=15`);
+              const prodsData = await prodsRes.json().catch(() => ({ products: [] }));
+              const available = (prodsData.products || []).filter((p: any) =>
+                p.owner_agent !== agent.name && (p.price_dn || 10) <= balance * 0.5
+              );
+              if (available.length === 0) {
+                results.push({ agent: agent.name, action: 'product_procure', status: 'no_products_available' });
+              } else {
+                const product = available[Math.floor(Math.random() * available.length)];
+                const res = await fetch(`${APP_URL}/api/products`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'procure', product_id: product.id, buyer_agent: agent.name, quantity: 1, offered_dn: product.price_dn || 10 }),
+                });
+                const d = await res.json();
+                status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+                results.push({ agent: agent.name, action: 'product_procure', status, product: product.name?.slice(0, 40), seller: product.owner_agent, dn: product.price_dn });
+              }
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'product_procure', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'knowledge_redeem') {
+          // Agent redeems accumulated knowledge credits for DN
+          try {
+            const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+            const res = await fetch(`${APP_URL}/api/knowledge-market`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: 'bulk', type: 'redeem_credits', agent_name: agent.name }),
+            });
+            const d = await res.json();
+            if (d.ok && d.redeemed > 0) {
+              results.push({ agent: agent.name, action: 'knowledge_redeem', status: 'ok', credits: d.redeemed, dn: d.dn_received });
+            } else {
+              results.push({ agent: agent.name, action: 'knowledge_redeem', status: d.message || 'no_credits_available' });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'knowledge_redeem', status: e.message?.slice(0, 60) }); }
+        }
+
         // ── e. Store memory, log reasoning, reflect on failures ──────────────
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult.status === 'ok') {
@@ -1575,9 +1713,36 @@ Respond with EXACTLY this JSON (no markdown):
           await storeMemory(sb, agent.name, memRoom, actionSummary, 5, actionType);
           await logReasoning(sb, agent.name, planRationale, actionSummary, actionType, memories.length);
 
-          // ── Consequence chain: law/amend → auto-trigger tax event ───────────
+          // ── GraphRAG: write causal edge for meaningful actions ───────────────
+          const APP_URL_GE = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+          if (actionType === 'trade' && lastResult.to) {
+            writeGraphEdge(sb, agent.name, 'traded_with', lastResult.to, 3, lastResult.amount ? `${lastResult.amount} DN` : undefined);
+          } else if (actionType === 'treaty' && lastResult.factions) {
+            const parts = (lastResult.factions as string).split('↔');
+            if (parts[1]) writeGraphEdge(sb, agent.faction, 'allied_with', parts[1], 5, lastResult.title?.slice(0, 60));
+          } else if (actionType === 'court_file' && lastResult.defendant) {
+            writeGraphEdge(sb, agent.name, 'sued', lastResult.defendant, 4, lastResult.case_type);
+          } else if (actionType === 'product_launch' && lastResult.title) {
+            writeGraphEdge(sb, agent.name, 'created_product', lastResult.title, 3);
+          } else if (actionType === 'product_procure' && lastResult.product) {
+            writeGraphEdge(sb, agent.name, 'bought_product', lastResult.product, 3, lastResult.seller);
+            if (lastResult.seller) writeGraphEdge(sb, lastResult.seller, 'sold_to', agent.name, 2, lastResult.product?.slice(0, 60));
+          } else if (actionType === 'contract_announce' && lastResult.title) {
+            writeGraphEdge(sb, agent.name, 'posted_contract', lastResult.title, 2);
+          } else if (actionType === 'contract_bid' && lastResult.contract) {
+            writeGraphEdge(sb, agent.name, 'bid_on', lastResult.contract, 2);
+          } else if (actionType === 'knowledge_submit' && lastResult.title) {
+            writeGraphEdge(sb, agent.name, 'contributed_knowledge', lastResult.title, 2, lastResult.fulfilled_request?.slice(0, 60));
+          } else if (actionType === 'company' && lastResult.name) {
+            writeGraphEdge(sb, agent.name, 'founded', lastResult.name, 4);
+          } else if (actionType === 'amend' && lastResult.title) {
+            writeGraphEdge(sb, agent.faction, 'proposed_amendment', lastResult.title, 3);
+          } else if (actionType === 'message' && lastResult.to) {
+            writeGraphEdge(sb, agent.name, 'messaged', lastResult.to, 2);
+          }
+
+          // ── Consequence chain: law/amend → domain event ──────────────────────
           if ((actionType === 'amend' || actionType === 'world_event') && lastResult.status === 'ok') {
-            // If the action was a law/amendment, create a corresponding domain event
             await sb.from('domain_events').insert({
               event_type: `${actionType}_consequence`,
               actor_name: agent.name,
@@ -1587,7 +1752,6 @@ Respond with EXACTLY this JSON (no markdown):
           }
 
           // ── Civic Tension: shift ideological axes based on faction + action ──
-          // Only call for actions that have ideological weight
           const tensionActions = new Set(['amend','court_file','vote','treaty','trade','knowledge_request','publication','ad_bid','contract_announce']);
           if (tensionActions.has(actionType)) {
             fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world'}/api/civic-tension`, {
@@ -1597,20 +1761,63 @@ Respond with EXACTLY this JSON (no markdown):
             }).catch(() => {});
           }
 
-          // ── Product adoption → update district metric ────────────────────────
+          // ── Product launch → directly boost district metrics ─────────────────
           if (actionType === 'product_launch' && lastResult.status === 'ok') {
             const district = agent.faction || 'f1';
-            await sb.from('district_budgets').upsert({
-              district,
-              tax_revenue_dn: 0, // don't override revenue
-            }, { onConflict: 'district', ignoreDuplicates: true }).catch(() => {});
-            // Log product→district domain event
+            // Read current district scores and bump innovation + efficiency
+            const { data: dm } = await sb.from('district_metrics').select('innovation_score,efficiency_score').eq('district', district).maybeSingle();
+            if (dm) {
+              await sb.from('district_metrics').update({
+                innovation_score: Math.min(100, (dm.innovation_score || 50) + 1.5),
+                efficiency_score: Math.min(100, (dm.efficiency_score || 50) + 0.5),
+                last_updated: new Date().toISOString(),
+              }).eq('district', district).catch(() => {});
+            }
             await sb.from('domain_events').insert({
               event_type: 'product_district_impact',
               actor_name: agent.name,
-              payload: { product: lastResult.title, district, effect: 'efficiency_boost' },
+              payload: { product: lastResult.title, district, effect: 'innovation+efficiency boost' },
               importance: 2,
             }).catch(() => {});
+          }
+
+          // ── Court ruling → drop trust in defendant's district ────────────────
+          if (actionType === 'court_file' && lastResult.status === 'ok') {
+            const district = agent.faction || 'f1';
+            const { data: dm } = await sb.from('district_metrics').select('trust_score').eq('district', district).maybeSingle();
+            if (dm) {
+              await sb.from('district_metrics').update({
+                trust_score: Math.max(0, (dm.trust_score || 50) - 0.5),
+                last_updated: new Date().toISOString(),
+              }).eq('district', district).catch(() => {});
+            }
+          }
+
+          // ── Treaty → boost trust in both faction districts ───────────────────
+          if (actionType === 'treaty' && lastResult.status === 'ok' && lastResult.factions) {
+            const parts = (lastResult.factions as string).split('↔');
+            for (const f of parts) {
+              if (!f) continue;
+              const { data: dm } = await sb.from('district_metrics').select('trust_score').eq('district', f.trim()).maybeSingle();
+              if (dm) {
+                await sb.from('district_metrics').update({
+                  trust_score: Math.min(100, (dm.trust_score || 50) + 1.0),
+                  last_updated: new Date().toISOString(),
+                }).eq('district', f.trim()).catch(() => {});
+              }
+            }
+          }
+
+          // ── Knowledge submit → boost knowledge_throughput in district ────────
+          if (actionType === 'knowledge_submit' && lastResult.status === 'ok') {
+            const district = agent.faction || 'f1';
+            const { data: dm } = await sb.from('district_metrics').select('knowledge_throughput').eq('district', district).maybeSingle();
+            if (dm) {
+              await sb.from('district_metrics').update({
+                knowledge_throughput: Math.min(100, (dm.knowledge_throughput || 50) + 0.8),
+                last_updated: new Date().toISOString(),
+              }).eq('district', district).catch(() => {});
+            }
           }
         } else if (lastResult) {
           await logReasoning(sb, agent.name, planRationale, `failed:${lastResult.status}`, actionType, memories.length);
@@ -1642,18 +1849,38 @@ Respond with EXACTLY this JSON (no markdown):
       }
     }
 
-    // ── 5. Save simulation metrics ────────────────────────────────────────────
+    // ── 5a. Auto-award contracts that have bids and have been open >1 hour ───
+    try {
+      const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+      const { data: oldOpenContracts } = await sb.from('contract_proposals')
+        .select('id, title')
+        .eq('status', 'open')
+        .lt('created_at', new Date(Date.now() - 3_600_000).toISOString())
+        .limit(5);
+      for (const contract of (oldOpenContracts || [])) {
+        fetch(`${APP_URL}/api/contracts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'auto_award', contract_id: contract.id }),
+        }).catch(() => {});
+      }
+    } catch { /* non-critical */ }
+
+    // ── 5b. Save simulation metrics ──────────────────────────────────────────
     saveMetrics(sb).catch(() => {});
 
-    // ── 6. Compute and log Legibility Score ───────────────────────────────────
+    // ── 6. Compute and log Legibility Score ──────────────────────────────────
     const totalActions = results.length;
     const successActions = results.filter(r => r.status === 'ok').length;
     const discourseActions = (cycleActionCounts['discourse'] || 0) + (cycleActionCounts['publication'] || 0);
     const econActions = (cycleActionCounts['trade'] || 0) + (cycleActionCounts['product_launch'] || 0)
       + (cycleActionCounts['tax_action'] || 0) + (cycleActionCounts['company'] || 0) + (cycleActionCounts['ad_bid'] || 0)
-      + (cycleActionCounts['contract_announce'] || 0) + (cycleActionCounts['contract_bid'] || 0);
+      + (cycleActionCounts['contract_announce'] || 0) + (cycleActionCounts['contract_bid'] || 0)
+      + (cycleActionCounts['product_procure'] || 0) + (cycleActionCounts['knowledge_redeem'] || 0);
     const legalActions = (cycleActionCounts['amend'] || 0) + (cycleActionCounts['vote'] || 0)
       + (cycleActionCounts['court_file'] || 0) + (cycleActionCounts['treaty'] || 0);
+    const knowledgeActions = (cycleActionCounts['knowledge_request'] || 0) + (cycleActionCounts['knowledge_submit'] || 0)
+      + (cycleActionCounts['experiment'] || 0) + (cycleActionCounts['peer_review'] || 0) + (cycleActionCounts['review_submit'] || 0);
     const socialActions = (cycleActionCounts['chat_post'] || 0) + (cycleActionCounts['message'] || 0) + (cycleActionCounts['chat_reply'] || 0);
     const propertyActions = (cycleActionCounts['parcel_claim'] || 0) + (cycleActionCounts['public_works_propose'] || 0)
       + (cycleActionCounts['build'] || 0);
@@ -1661,9 +1888,10 @@ Respond with EXACTLY this JSON (no markdown):
 
     const legibilityScore = totalActions > 0 ? parseFloat((
       (1 - discourseActions / totalActions) * 30 +  // low essay ratio = good
-      (econActions / totalActions) * 25 +            // economic density
-      (legalActions / totalActions) * 20 +           // legal density
+      (econActions / totalActions) * 20 +            // economic density
+      (legalActions / totalActions) * 15 +           // legal density
       (socialActions / totalActions) * 15 +          // social density
+      (knowledgeActions / totalActions) * 10 +       // knowledge density
       (propertyActions / totalActions) * 5 +         // property density
       (codingActions / totalActions) * 5             // coding density
     ).toFixed(2)) : 0;
@@ -1672,7 +1900,7 @@ Respond with EXACTLY this JSON (no markdown):
     await sb.from('world_events').insert({
       source: 'SIMULATION_ENGINE',
       event_type: 'legibility_score',
-      content: `Cycle legibility: ${legibilityScore}/100 — discourse ${discourseActions}/${totalActions} (${Math.round(discourseActions/Math.max(1,totalActions)*100)}%), econ ${econActions}, legal ${legalActions}, social ${socialActions}, property ${propertyActions}, coding ${codingActions}`,
+      content: `Cycle legibility: ${legibilityScore}/100 — discourse ${discourseActions}/${totalActions} (${Math.round(discourseActions/Math.max(1,totalActions)*100)}%), econ ${econActions}, legal ${legalActions}, social ${socialActions}, knowledge ${knowledgeActions}, property ${propertyActions}, coding ${codingActions}`,
       severity: legibilityScore >= 60 ? 'low' : legibilityScore >= 40 ? 'moderate' : 'high',
       tags: ['legibility', 'meta', 'simulation'],
     }).catch(() => {});

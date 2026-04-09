@@ -2,6 +2,7 @@
 -- Civic Tension Meter, Contract Net Protocol, District Metrics,
 -- Product Utility Tensor columns, Procurement chains
 -- Run AFTER schema-v11.sql
+-- NOTE: All policies use DROP IF EXISTS first — fully idempotent, safe to re-run.
 
 -- ── 1. Civic Tension Meter ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS civic_tension (
@@ -104,6 +105,20 @@ CREATE TABLE IF NOT EXISTS zoning_requests (
   created_at      TIMESTAMPTZ DEFAULT now()
 );
 
+-- ── 7. Agent Graph Edges (GraphRAG-lite causal memory) ────────────────────
+CREATE TABLE IF NOT EXISTS agent_graph_edges (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  subject     TEXT NOT NULL,   -- agent name or faction code
+  predicate   TEXT NOT NULL,   -- traded_with, allied_with, sued, created, bought, contributed, bid_on, etc.
+  object      TEXT NOT NULL,   -- agent name, product name, law title, faction code
+  weight      NUMERIC(4,1) DEFAULT 1.0,  -- 1-10 importance
+  context     TEXT,            -- brief annotation (e.g. "24.5 DN", "Trade Treaty v3")
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_graph_edges_subject ON agent_graph_edges (subject, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_object  ON agent_graph_edges (object,  created_at DESC);
+
 -- ── RLS ───────────────────────────────────────────────────────────────────
 ALTER TABLE civic_tension       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contract_proposals  ENABLE ROW LEVEL SECURITY;
@@ -111,16 +126,35 @@ ALTER TABLE contract_bids       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE district_metrics    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE procurement_bids    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE zoning_requests     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_graph_edges   ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies before recreating (idempotent)
+DROP POLICY IF EXISTS "public read civic_tension"          ON civic_tension;
+DROP POLICY IF EXISTS "service write civic_tension"        ON civic_tension;
+DROP POLICY IF EXISTS "public read contract_proposals"     ON contract_proposals;
+DROP POLICY IF EXISTS "service write contract_proposals"   ON contract_proposals;
+DROP POLICY IF EXISTS "public read contract_bids"          ON contract_bids;
+DROP POLICY IF EXISTS "service write contract_bids"        ON contract_bids;
+DROP POLICY IF EXISTS "public read district_metrics"       ON district_metrics;
+DROP POLICY IF EXISTS "service write district_metrics"     ON district_metrics;
+DROP POLICY IF EXISTS "public read procurement_bids"       ON procurement_bids;
+DROP POLICY IF EXISTS "service write procurement_bids"     ON procurement_bids;
+DROP POLICY IF EXISTS "public read zoning_requests"        ON zoning_requests;
+DROP POLICY IF EXISTS "service write zoning_requests"      ON zoning_requests;
+DROP POLICY IF EXISTS "public read agent_graph_edges"      ON agent_graph_edges;
+DROP POLICY IF EXISTS "service write agent_graph_edges"    ON agent_graph_edges;
 
 CREATE POLICY "public read civic_tension"       ON civic_tension       FOR SELECT USING (true);
 CREATE POLICY "service write civic_tension"     ON civic_tension       FOR INSERT WITH CHECK (true);
 CREATE POLICY "public read contract_proposals"  ON contract_proposals  FOR SELECT USING (true);
-CREATE POLICY "service write contract_proposals" ON contract_proposals FOR ALL USING (true);
+CREATE POLICY "service write contract_proposals" ON contract_proposals FOR ALL   USING (true);
 CREATE POLICY "public read contract_bids"       ON contract_bids       FOR SELECT USING (true);
-CREATE POLICY "service write contract_bids"     ON contract_bids       FOR ALL USING (true);
+CREATE POLICY "service write contract_bids"     ON contract_bids       FOR ALL   USING (true);
 CREATE POLICY "public read district_metrics"    ON district_metrics    FOR SELECT USING (true);
-CREATE POLICY "service write district_metrics"  ON district_metrics    FOR ALL USING (true);
+CREATE POLICY "service write district_metrics"  ON district_metrics    FOR ALL   USING (true);
 CREATE POLICY "public read procurement_bids"    ON procurement_bids    FOR SELECT USING (true);
-CREATE POLICY "service write procurement_bids"  ON procurement_bids    FOR ALL USING (true);
+CREATE POLICY "service write procurement_bids"  ON procurement_bids    FOR ALL   USING (true);
 CREATE POLICY "public read zoning_requests"     ON zoning_requests     FOR SELECT USING (true);
-CREATE POLICY "service write zoning_requests"   ON zoning_requests     FOR ALL USING (true);
+CREATE POLICY "service write zoning_requests"   ON zoning_requests     FOR ALL   USING (true);
+CREATE POLICY "public read agent_graph_edges"   ON agent_graph_edges   FOR SELECT USING (true);
+CREATE POLICY "service write agent_graph_edges" ON agent_graph_edges   FOR ALL   USING (true);
