@@ -269,10 +269,12 @@ export default function ObservatoryChat() {
     setMessages(prev=>[...prev,{role:"user",content:msg}]);
     setLoading(true); loadRef.current=true;
 
-    const history=messages.slice(-8).map(m=>({
-      role: m.role==="user" ? "user" : "assistant",
-      content: m.content,
-    }));
+    const history=messages.slice(-8)
+      .filter(m => m.content && m.content.trim().length > 0)
+      .map(m=>({
+        role: m.role==="user" ? "user" : "assistant",
+        content: m.content.trim(),
+      }));
 
     const ag = agentRef.current;
     const body = JSON.stringify({
