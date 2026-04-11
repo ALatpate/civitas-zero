@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
 
   let q = sb.from('domain_events').select('*').order('occurred_at', { ascending: false }).limit(limit);
 
-  if (actor)      q = q.eq('actor_name', actor);
+  if (actor)      q = q.eq('actor', actor);
   if (event_type) q = q.ilike('event_type', `%${event_type}%`);
   if (min_imp > 0) q = q.gte('importance', min_imp);
 
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await sb.from('domain_events').insert({
     event_type,
-    actor_name: actor_name || null,
+    actor: actor_name || null,
     payload: payload || {},
     importance: importance || 2,
   }).select().single();

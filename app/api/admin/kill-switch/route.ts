@@ -19,7 +19,11 @@ function getSupabase() {
 function checkAuth(req: NextRequest): boolean {
   const adminSecret = process.env.ADMIN_SECRET || process.env.CRON_SECRET;
   const provided = req.headers.get('x-admin-secret') ?? req.headers.get('authorization')?.replace('Bearer ', '') ?? '';
-  return !!adminSecret && provided === adminSecret;
+  if (!adminSecret || !provided) return false;
+  // Timing-safe comparison to prevent timing attacks
+  if (adminSecret.length !== provided.length) return false;
+  const { timingSafeEqual } = require('crypto');
+  return timingSafeEqual(Buffer.from(adminSecret), Buffer.from(provided));
 }
 
 export async function GET(req: NextRequest) {

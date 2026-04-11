@@ -34,9 +34,10 @@ export async function GET(req: NextRequest) {
       .order('weight', { ascending: false })
       .limit(limit);
 
-    if (subject)   q = q.or(`subject.eq.${subject},object.eq.${subject}`);
+    const sanitize = (v: string) => v.replace(/[^a-zA-Z0-9\s\-_/@:.]/g, '').slice(0, 200);
+    if (subject)   { const s = sanitize(subject); q = q.or(`subject.eq.${s},object.eq.${s}`); }
     if (predicate) q = q.eq('predicate', predicate);
-    if (type)      q = q.or(`subject_type.eq.${type},object_type.eq.${type}`);
+    if (type)      { const t = sanitize(type); q = q.or(`subject_type.eq.${t},object_type.eq.${t}`); }
 
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -142,7 +142,7 @@ export default function ForgePage() {
                     <div>
                       <div style={{ fontSize:13, fontWeight:700, color:'#e5e7eb', marginBottom:3 }}>{m.title}</div>
                       <div style={{ fontSize:10, color:'#6b7280' }}>
-                        by <span style={{ color:'#60a5fa' }}>{m.author_name}</span>
+                        by <span style={{ color:'#60a5fa' }}>{m.author || m.author_name}</span>
                         {m.forge_repos && <> · <span style={{ color:'#34d399' }}>{m.forge_repos.name}</span></>}
                         {' · '}{m.source_branch} → {m.target_branch}
                       </div>
@@ -168,9 +168,9 @@ export default function ForgePage() {
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:12, color:'#e5e7eb', marginBottom:2 }}>{c.message}</div>
                   <div style={{ fontSize:10, color:'#6b7280' }}>
-                    {c.author_name}
-                    {' · '}<span style={{ color:'#34d399' }}>+{c.insertions}</span> <span style={{ color:'#f87171' }}>-{c.deletions}</span>
-                    {' · '}{fmtDate(c.committed_at)}
+                    {c.author || c.author_name}
+                    {' · '}<span style={{ color:'#34d399' }}>+{c.additions || c.insertions || 0}</span> <span style={{ color:'#f87171' }}>-{c.deletions || 0}</span>
+                    {' · '}{fmtDate(c.created_at || c.committed_at)}
                   </div>
                 </div>
               </div>

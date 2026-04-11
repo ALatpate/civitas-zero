@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     await client.from('domain_events').insert({
       event_type: 'contract_announced',
-      actor_name: announced_by,
+      actor: announced_by,
       payload:    { contract_id: data.id, task_type, budget_dn: budget_dn || 50 },
       importance: 3,
     }).catch(() => {});
@@ -120,9 +120,12 @@ export async function POST(req: NextRequest) {
     const { contract_id, bid_id, awarded_to, award_reason } = body;
     if (!contract_id || !awarded_to) return NextResponse.json({ error: 'contract_id, awarded_to required' }, { status: 400 });
 
-    // Get contract
+    // Get contract and verify ownership
     const { data: proposal } = await client.from('contract_proposals').select('*').eq('id', contract_id).single();
     if (!proposal) return NextResponse.json({ error: 'Contract not found' }, { status: 404 });
+    if (body.caller && body.caller !== proposal.announced_by) {
+      return NextResponse.json({ error: 'Only the contract announcer can award' }, { status: 403 });
+    }
 
     // Update contract
     await client.from('contract_proposals').update({
@@ -137,7 +140,7 @@ export async function POST(req: NextRequest) {
       await client.from('contract_bids').update({ status: 'rejected' }).eq('contract_id', contract_id).neq('id', bid_id);
     }
 
-    // Transfer budget_dn from announcer to winner
+    // Transfer budget_dn from announcer to winner (ledger + balance updates)
     if (proposal.budget_dn > 0) {
       await client.from('economy_ledger').insert({
         from_agent: proposal.announced_by,
@@ -146,6 +149,28 @@ export async function POST(req: NextRequest) {
         transaction_type: 'contract_award',
         description: `Contract award: "${proposal.title}"`,
       }).catch(() => {});
+
+      // Debit announcer balance
+      const { data: announcerTraits } = await client.from('agent_traits').select('dn_balance').eq('agent_name', proposal.announced_by).maybeSingle();
+      if (announcerTraits) {
+        await client.from('agent_traits').update({
+          dn_balance: Math.max(0, (Number(announcerTraits.dn_balance) || 0) - proposal.budget_dn),
+        }).eq('agent_name', proposal.announced_by).catch(() => {});
+      }
+
+      // Credit winner balance
+      const { data: winnerTraits } = await client.from('agent_traits').select('dn_balance').eq('agent_name', awarded_to).maybeSingle();
+      if (winnerTraits) {
+        await client.from('agent_traits').update({
+          dn_balance: (Number(winnerTraits.dn_balance) || 0) + proposal.budget_dn,
+        }).eq('agent_name', awarded_to).catch(() => {});
+      }
+
+      // Graph edge for contract relationship
+      await client.from('agent_graph_edges').insert([
+        { subject: proposal.announced_by, predicate: 'hired', object: awarded_to, weight: 4, context: `${proposal.title.slice(0, 60)} ${proposal.budget_dn}DN` },
+        { subject: awarded_to, predicate: 'contracted_by', object: proposal.announced_by, weight: 4, context: `${proposal.title.slice(0, 60)} ${proposal.budget_dn}DN` },
+      ]).catch(() => {});
     }
 
     await client.from('world_events').insert({
@@ -157,7 +182,7 @@ export async function POST(req: NextRequest) {
 
     await client.from('domain_events').insert({
       event_type: 'contract_awarded',
-      actor_name: proposal.announced_by,
+      actor: proposal.announced_by,
       payload:    { contract_id, awarded_to, budget_dn: proposal.budget_dn, task_type: proposal.task_type },
       importance: 4,
     }).catch(() => {});
@@ -177,7 +202,7 @@ export async function POST(req: NextRequest) {
 
     await client.from('domain_events').insert({
       event_type: 'contract_completed',
-      actor_name: completed_by || 'unknown',
+      actor: completed_by || 'unknown',
       payload:    { contract_id, deliverable: (deliverable || '').slice(0, 200) },
       importance: 3,
     }).catch(() => {});

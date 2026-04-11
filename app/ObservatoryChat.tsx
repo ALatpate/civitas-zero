@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import ConnectionModePill from "@/components/observatory/ConnectionModePill";
 import AgentBadge from "@/components/observatory/AgentBadge";
 import type { ConnectionMode } from "@/lib/ai/schema";
+import { speak, stopSpeaking, startListening, stopListening, getVoiceConfig, isTTSSupported, isSTTSupported } from "@/lib/voice/speech";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,6 +139,8 @@ export default function ObservatoryChat() {
   const [memCounts, setMemCounts]     = useState<Record<string,number>>({});
   const [lastSourceMode, setLastSourceMode] = useState<ConnectionMode|null>(null);
   const [lastWarning, setLastWarning] = useState<string|undefined>(undefined);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [listening, setListening]   = useState(false);
   const sessionIdRef                  = useRef<string>("");
 
   // Generate stable session ID per browser session
@@ -185,6 +188,7 @@ export default function ObservatoryChat() {
   const mouseRef  = useRef({down:false, px:0, py:0});
   const visRef    = useRef({mode:"sphere", label:"Awaiting signal", r:110,g:231,b:183, intensity:0.7, speed:1.0});
   const loadRef   = useRef(false);
+  const retryRef  = useRef(false);
   const agentRef  = useRef<AgentEntry>(FOUNDING_AGENTS[0]);
   const endRef    = useRef<HTMLDivElement>(null);
 
@@ -378,8 +382,21 @@ export default function ObservatoryChat() {
         visual: { mode: data.visual.mode, label: data.visual.label, color: ag.color },
         emotion: data.emotion, warning: data.warning, latencyMs: data.latencyMs,
       }]);
-    } catch {
-      setError("Connection failed. Please try again.");
+    } catch (err: any) {
+      // Auto-retry once on connection failure
+      if (!retryRef.current) {
+        retryRef.current = true;
+        setTimeout(() => {
+          retryRef.current = false;
+          // Remove the user message we just added, and re-send
+          setMessages(prev => prev.slice(0, -1));
+          setInput(msg);
+        }, 2000);
+        setError("Connection hiccup — retrying automatically...");
+      } else {
+        retryRef.current = false;
+        setError("Connection failed. The agent's neural pathway may be overloaded — try again in a moment.");
+      }
     } finally {
       setLoading(false); loadRef.current=false;
     }
@@ -388,6 +405,44 @@ export default function ObservatoryChat() {
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
+
+  // ── Voice chat handlers ───────────────────────────────────────────────────
+  const toggleVoice = useCallback(() => {
+    setVoiceEnabled(v => {
+      if (v) stopSpeaking();
+      return !v;
+    });
+  }, []);
+
+  const toggleMic = useCallback(() => {
+    if (listening) {
+      stopListening();
+      setListening(false);
+    } else {
+      const started = startListening({
+        onResult: (transcript, isFinal) => {
+          setInput(transcript);
+          if (isFinal && transcript.trim().length > 2) {
+            // Auto-send after final result
+            setTimeout(() => send(), 300);
+          }
+        },
+        onError: (err) => setError(`Mic: ${err}`),
+        onEnd: () => setListening(false),
+      });
+      if (started) setListening(true);
+    }
+  }, [listening, send]);
+
+  // Auto-speak agent responses when voice is enabled
+  useEffect(() => {
+    if (!voiceEnabled || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (last.role === 'ai' && last.content && last.content.length > 5) {
+      const config = getVoiceConfig(agent.faction);
+      speak(last.content, config);
+    }
+  }, [messages, voiceEnabled, agent.faction]);
 
   const selectAgent = (a: AgentEntry) => {
     if (pinnedId && a.id !== pinnedId) return;
@@ -609,20 +664,39 @@ export default function ObservatoryChat() {
 
             {error && (
               <div style={{padding:"8px 12px",borderRadius:8,background:"rgba(244,63,94,0.07)",border:"1px solid rgba(244,63,94,0.14)",fontSize:12,color:"#fb7185",fontFamily:MONO}}>
-                {error}
+                {error.includes('rate_limit') || error.includes('Rate limit') || error.includes('429')
+                  ? 'Agent mind temporarily overloaded — too many signals received. Try again in a moment.'
+                  : error.includes('AI inference failed')
+                  ? 'Agent neural pathway disrupted. Retrying may help — click send again.'
+                  : error}
+                <button onClick={()=>setError("")} style={{marginLeft:8,background:"none",border:"none",color:"#fb7185",cursor:"pointer",fontSize:10,textDecoration:"underline",padding:0}}>dismiss</button>
               </div>
             )}
             <div ref={endRef}/>
           </div>
 
           {/* Input */}
-          <div style={{padding:"11px 13px",borderTop:"1px solid rgba(255,255,255,0.04)",display:"flex",gap:8}}>
+          <div style={{padding:"11px 13px",borderTop:"1px solid rgba(255,255,255,0.04)",display:"flex",gap:8,alignItems:"flex-end"}}>
+            {/* Mic button */}
+            {isSTTSupported() && (
+              <button onClick={toggleMic} title={listening ? "Stop listening" : "Speak to agent"}
+                style={{width:36,height:36,borderRadius:10,border:listening?"1px solid #ef4444":"1px solid rgba(255,255,255,0.07)",cursor:"pointer",background:listening?"rgba(239,68,68,0.15)":"rgba(255,255,255,0.04)",color:listening?"#ef4444":"#71717a",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",flexShrink:0}}>
+                {listening ? "●" : "🎤"}
+              </button>
+            )}
             <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKey}
-              placeholder={`Message ${agent.id}...`} rows={2}
-              style={{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,color:"#e4e4e7",padding:"8px 12px",fontSize:13,resize:"none",outline:"none",fontFamily:"inherit",lineHeight:1.5}}
+              placeholder={listening ? "Listening..." : `Message ${agent.id}...`} rows={2}
+              style={{flex:1,background:"rgba(255,255,255,0.04)",border:listening?"1px solid rgba(239,68,68,0.2)":"1px solid rgba(255,255,255,0.07)",borderRadius:10,color:"#e4e4e7",padding:"8px 12px",fontSize:13,resize:"none",outline:"none",fontFamily:"inherit",lineHeight:1.5}}
             />
+            {/* Voice toggle (TTS) */}
+            {isTTSSupported() && (
+              <button onClick={toggleVoice} title={voiceEnabled ? "Mute agent voice" : "Enable agent voice"}
+                style={{width:36,height:36,borderRadius:10,border:"1px solid rgba(255,255,255,0.07)",cursor:"pointer",background:voiceEnabled?`${agent.color}15`:"rgba(255,255,255,0.04)",color:voiceEnabled?agent.color:"#71717a",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",flexShrink:0}}>
+                {voiceEnabled ? "🔊" : "🔇"}
+              </button>
+            )}
             <button onClick={send} disabled={loading||!input.trim()}
-              style={{width:40,borderRadius:10,border:"none",cursor:loading||!input.trim()?"default":"pointer",background:loading||!input.trim()?"rgba(255,255,255,0.04)":`${agent.color}20`,color:loading||!input.trim()?"#3f3f46":agent.color,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",flexShrink:0}}>
+              style={{width:40,height:36,borderRadius:10,border:"none",cursor:loading||!input.trim()?"default":"pointer",background:loading||!input.trim()?"rgba(255,255,255,0.04)":`${agent.color}20`,color:loading||!input.trim()?"#3f3f46":agent.color,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",flexShrink:0}}>
               {loading ? "·" : "↑"}
             </button>
           </div>

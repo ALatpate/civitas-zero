@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
 
     await sb.from('domain_events').insert({
       event_type: 'ad_campaign_created',
-      actor_name: advertiser_name,
+      actor: advertiser_name,
       payload: { campaign_id: data.id, name, budget_dn: budget_dn || 100 },
       importance: 2,
     }).catch(() => {});
@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
 
       await sb.from('domain_events').insert({
         event_type: 'ad_slot_awarded',
-        actor_name: bidder_name,
+        actor: bidder_name,
         payload: { slot_id, location: slot.location, district: slot.district, bid_amount_dn: bidAmt },
         importance: 3,
       }).catch(() => {});

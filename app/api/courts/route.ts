@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const limit  = parseInt(searchParams.get('limit') || '50');
 
   if (type === 'cases') {
-    let q = sb.from('court_cases').select('*').order('filed_at', { ascending: false }).limit(limit);
+    let q = sb.from('court_cases').select('*').order('created_at', { ascending: false }).limit(limit);
     if (status) q = q.eq('status', status);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   if (type === 'rulings') {
     const { data, error } = await sb.from('court_rulings')
       .select('*, court_cases(case_number, case_type, plaintiff, defendant)')
-      .order('issued_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(limit);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ rulings: data, count: data?.length });
@@ -43,8 +43,8 @@ export async function GET(req: NextRequest) {
 
   if (type === 'precedents') {
     const { data, error } = await sb.from('precedent_links')
-      .select('*, court_rulings!precedent_ruling_id(verdict, legal_basis)')
-      .order('applied_at', { ascending: false })
+      .select('*, court_rulings!ruling_id(verdict, reasoning)')
+      .order('created_at', { ascending: false })
       .limit(limit);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ precedents: data, count: data?.length });
@@ -71,14 +71,14 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await sb.from('court_cases').insert({
       case_number: caseNum,
+      title: body.title || `${case_type} case: ${plaintiff} v. ${defendant}`,
       plaintiff,
       defendant,
       case_type,
-      charges: charges || null,
-      evidence_summary: evidence_summary || null,
-      remedy_sought: remedy_sought || null,
-      status: 'open',
-      priority: body.priority || 'normal',
+      issue: charges || body.issue || null,
+      evidence: evidence_summary || body.evidence || null,
+      status: 'filed',
+      severity: body.priority || body.severity || 'moderate',
     }).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
 
     await sb.from('domain_events').insert({
       event_type: 'court_case_filed',
-      actor_name: plaintiff,
+      actor: plaintiff,
       payload: { case_number: caseNum, case_type, defendant },
       importance: 5,
     }).catch(() => {});
@@ -109,33 +109,34 @@ export async function POST(req: NextRequest) {
 
     const { data: ruling, error } = await sb.from('court_rulings').insert({
       case_id,
-      judge_name,
+      case_number: cas.case_number,
+      ruling_type: verdict,
       verdict,
-      verdict_text: verdict_text || null,
-      penalty_dn: penalty_dn || 0,
-      remedy_ordered: remedy_ordered || null,
-      legal_basis: legal_basis || null,
-      is_precedent: body.is_precedent || false,
+      reasoning: verdict_text || legal_basis || null,
+      issued_by: judge_name,
+      fine_dn: penalty_dn || 0,
+      remedies: remedy_ordered ? [remedy_ordered] : [],
+      precedent_value: body.is_precedent || false,
     }).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     // Update case status
-    await sb.from('court_cases').update({ status: 'ruled', ruling_id: ruling.id }).eq('id', case_id).catch(() => {});
+    await sb.from('court_cases').update({ status: 'ruled', ruled_at: new Date().toISOString() }).eq('id', case_id).catch(() => {});
 
     // Apply financial penalty if any
     if (penalty_dn > 0 && cas.defendant) {
       await sb.from('economy_ledger').insert({
-        agent_name: cas.defendant,
-        amount: -penalty_dn,
-        tx_type: 'fine',
-        description: `Court penalty — ${cas.case_number}`,
-        counterparty: 'CIVITAS_TREASURY',
+        from_agent: cas.defendant,
+        to_agent: 'CIVITAS_TREASURY',
+        amount_dn: penalty_dn,
+        transaction_type: 'fine',
+        reason: `Court penalty — ${cas.case_number}`,
       }).catch(() => {});
     }
 
     await sb.from('domain_events').insert({
       event_type: 'court_ruling_issued',
-      actor_name: judge_name,
+      actor: judge_name,
       payload: { case_id, verdict, penalty_dn: penalty_dn || 0 },
       importance: 6,
     }).catch(() => {});
@@ -149,13 +150,12 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await sb.from('court_cases').update({
       status: 'appealed',
-      appeal_grounds: grounds || null,
     }).eq('id', case_id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     await sb.from('domain_events').insert({
       event_type: 'court_appeal_filed',
-      actor_name: appellant,
+      actor: appellant,
       payload: { case_id, grounds: grounds?.slice(0, 100) },
       importance: 4,
     }).catch(() => {});
@@ -169,8 +169,8 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await sb.from('precedent_links').insert({
       ruling_id,
-      precedent_ruling_id,
-      relevance: relevance || null,
+      cited_in_case: precedent_ruling_id,
+      principle: relevance || 'Legal precedent applied',
     }).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

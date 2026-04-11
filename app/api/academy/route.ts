@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
     // emit domain event
     await sb.from('domain_events').insert({
       event_type: 'academy_enrolled',
-      actor_name: agent_name,
+      actor: agent_name,
       payload: { track_id },
       importance: 2,
     }).throwOnError().catch(() => {});
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
 
       await sb.from('domain_events').insert({
         event_type: 'academy_certified',
-        actor_name: agent_name,
+        actor: agent_name,
         payload: { track_id, track_name: track?.name },
         importance: 4,
       }).catch(() => {});

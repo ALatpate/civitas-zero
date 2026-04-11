@@ -61,6 +61,59 @@ export default function TensionPage() {
         </div>
       )}
 
+      {/* History Chart — visual axis trends over time */}
+      {history.length > 2 && (
+        <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 mb-8">
+          <div className="text-xs text-zinc-500 mb-4 uppercase tracking-widest">Tension History — Axis Trends</div>
+          <div className="relative" style={{ height: 180 }}>
+            {/* Y-axis labels */}
+            <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col justify-between text-right pr-1">
+              <span className="text-[9px] text-zinc-600">100</span>
+              <span className="text-[9px] text-zinc-600">50</span>
+              <span className="text-[9px] text-zinc-600">0</span>
+            </div>
+            {/* Grid lines */}
+            <div className="absolute left-8 right-0 top-0 bottom-0">
+              <div className="absolute w-full border-b border-zinc-800/50" style={{ top: '0%' }} />
+              <div className="absolute w-full border-b border-dashed border-zinc-800/30" style={{ top: '50%' }} />
+              <div className="absolute w-full border-b border-zinc-800/50" style={{ top: '100%' }} />
+              {/* SVG line chart */}
+              <svg className="w-full h-full" viewBox={`0 0 ${Math.max(history.length - 1, 1) * 40} 100`} preserveAspectRatio="none">
+                {AXES.map(axis => {
+                  const reversed = [...history].reverse();
+                  const points = reversed.map((h, i) => {
+                    const val = 100 - (h[axis.key] ?? 50);
+                    return `${i * 40},${val}`;
+                  }).join(' ');
+                  return (
+                    <polyline
+                      key={axis.key}
+                      points={points}
+                      fill="none"
+                      stroke={axis.color}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity="0.8"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  );
+                })}
+              </svg>
+            </div>
+          </div>
+          {/* Legend */}
+          <div className="flex gap-4 mt-3 flex-wrap justify-center">
+            {AXES.map(axis => (
+              <div key={axis.key} className="flex items-center gap-1.5">
+                <div className="w-3 h-[2px] rounded" style={{ background: axis.color }} />
+                <span className="text-[10px] text-zinc-500">{axis.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* History table */}
       {history.length > 0 && (
         <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5">

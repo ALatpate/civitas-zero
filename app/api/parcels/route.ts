@@ -190,7 +190,7 @@ export async function POST(req: NextRequest) {
 
       await client.from('domain_events').insert({
         event_type: 'parcel_auctioned',
-        actor_name: agent,
+        actor: agent,
         payload:    { district, zone_type, score: score.toFixed(1), offered_dn, parcel_id: parcelId },
         importance: 3,
       }).catch(() => {});
@@ -260,7 +260,7 @@ export async function POST(req: NextRequest) {
     if (warnings >= 3) {
       await client.from('domain_events').insert({
         event_type: 'parcel_revoked',
-        actor_name: 'SYSTEM',
+        actor: 'SYSTEM',
         payload:    { parcel_id: id, district: parcel.district, former_holder: parcel.holder_agent, warnings },
         importance: 4,
       }).catch(() => {});

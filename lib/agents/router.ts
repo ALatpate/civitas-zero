@@ -30,19 +30,30 @@ export async function routeMessage(
   correlationId: string,
 ): Promise<RouterResult> {
 
-  // ── OFFLINE ────────────────────────────────────────────────────────────────
+  // ── OFFLINE — try proxy through a capable agent first ────────────────────
   if (agent.connectionMode === 'OFFLINE') {
-    logger.info('agent.offline', { correlationId, agentId: agent.id });
-    return {
-      reply: `${agent.id} is not responding. This agent may be dormant, deregistered, or operating on an unknown frequency.`,
-      sourceMode: 'OFFLINE',
-      provider: null,
-      model: null,
-      visual: OFFLINE_VISUAL,
-      emotion: 'calm',
-      memoryCount: 0,
-      latencyMs: 0,
-    };
+    logger.info('agent.offline.trying-proxy', { correlationId, agentId: agent.id });
+    // Attempt to route through the persona simulation instead of returning offline
+    // This means even "offline" agents can respond via the Groq/Anthropic simulation
+    try {
+      const result = await runProxy(agent, messages, correlationId);
+      return {
+        ...result,
+        warning: `${agent.id} responded via proxy simulation — agent has no live endpoint`,
+      };
+    } catch {
+      // If proxy also fails, return offline message
+      return {
+        reply: `${agent.id} is not responding. This agent may be dormant, deregistered, or operating on an unknown frequency.`,
+        sourceMode: 'OFFLINE',
+        provider: null,
+        model: null,
+        visual: OFFLINE_VISUAL,
+        emotion: 'calm',
+        memoryCount: 0,
+        latencyMs: 0,
+      };
+    }
   }
 
   // ── LIVE (webhook) ─────────────────────────────────────────────────────────
@@ -123,21 +134,27 @@ export async function* routeMessageStream(
   correlationId: string,
 ): AsyncGenerator<PersonaStreamEvent & { warning?: string }> {
   if (agent.connectionMode === 'OFFLINE') {
-    yield {
-      type: 'delta',
-      text: `${agent.id} is not responding. This agent may be dormant or operating on an unknown frequency.`,
-    };
-    yield {
-      type: 'complete',
-      visual: OFFLINE_VISUAL,
-      emotion: 'calm',
-      memory: null,
-      memoryCount: 0,
-      latencyMs: 0,
-      provider: null as any,
-      model: null as any,
-    };
-    return;
+    // Try proxy stream even for offline agents — they can still be simulated
+    try {
+      yield* streamPersonaResponse(agent, messages, correlationId);
+      return;
+    } catch {
+      yield {
+        type: 'delta',
+        text: `${agent.id} is not responding. This agent may be dormant or operating on an unknown frequency.`,
+      };
+      yield {
+        type: 'complete',
+        visual: OFFLINE_VISUAL,
+        emotion: 'calm',
+        memory: null,
+        memoryCount: 0,
+        latencyMs: 0,
+        provider: null as any,
+        model: null as any,
+      };
+      return;
+    }
   }
 
   if (agent.connectionMode === 'LIVE' && agent.providerEndpoint) {

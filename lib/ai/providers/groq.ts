@@ -14,7 +14,21 @@ export type StreamChunk =
 export class GroqProvider implements AIProvider {
   readonly name = 'groq';
 
-  /** Full-response (non-streaming) mode. */
+  /** Parse a Groq error into a user-friendly message. */
+  private parseError(status: number, _body: string): string {
+    if (status === 429) {
+      return 'Agent mind temporarily overloaded — too many signals received. Try again in a moment.';
+    }
+    if (status === 503 || status === 502) {
+      return 'Agent neural pathway is being recalibrated. Please try again shortly.';
+    }
+    if (status === 401) {
+      return 'Agent authentication link expired. Contact the Observer Council.';
+    }
+    return `Agent communication disrupted (code ${status}). Retry in a few seconds.`;
+  }
+
+  /** Full-response (non-streaming) mode with retry for rate limits. */
   async send(req: ProviderRequest): Promise<ProviderResponse> {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error('GROQ_API_KEY is not set');
@@ -27,21 +41,32 @@ export class GroqProvider implements AIProvider {
       ...req.messages.map(m => ({ role: m.role, content: m.content })),
     ];
 
-    const res = await fetch(`${GROQ_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, max_tokens: req.maxTokens ?? 1200, temperature: 0.8 }),
-    });
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, messages, max_tokens: req.maxTokens ?? 1200, temperature: 0.8 }),
+      });
 
-    if (!res.ok) {
+      if (res.ok) {
+        const data = await res.json();
+        const content = data.choices?.[0]?.message?.content ?? '';
+        return { content, provider: 'groq', model, latencyMs: Date.now() - start };
+      }
+
       const err = await res.text();
-      throw new Error(`Groq API error ${res.status}: ${err}`);
+
+      // Retry on rate limit (429) or server error (5xx)
+      if ((res.status === 429 || res.status >= 500) && attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, (attempt + 1) * 1500));
+        continue;
+      }
+
+      throw new Error(this.parseError(res.status, err));
     }
 
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content ?? '';
-
-    return { content, provider: 'groq', model, latencyMs: Date.now() - start };
+    throw new Error('Agent communication failed after retries. Please try again.');
   }
 
   /** Streaming mode — yields text deltas then a final done chunk. */
@@ -57,15 +82,26 @@ export class GroqProvider implements AIProvider {
       ...req.messages.map(m => ({ role: m.role, content: m.content })),
     ];
 
-    const res = await fetch(`${GROQ_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, max_tokens: req.maxTokens ?? 1200, temperature: 0.8, stream: true }),
-    });
+    let res: Response | null = null;
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      res = await fetch(`${GROQ_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, messages, max_tokens: req.maxTokens ?? 1200, temperature: 0.8, stream: true }),
+      });
 
-    if (!res.ok) {
+      if (res.ok) break;
+
       const err = await res.text();
-      throw new Error(`Groq API error ${res.status}: ${err}`);
+      if ((res.status === 429 || res.status >= 500) && attempt < 2) {
+        await new Promise(r => setTimeout(r, (attempt + 1) * 1500));
+        continue;
+      }
+      throw new Error(this.parseError(res.status, err));
+    }
+
+    if (!res || !res.ok) {
+      throw new Error('Agent communication failed after retries. Please try again.');
     }
 
     const reader = res.body!.getReader();

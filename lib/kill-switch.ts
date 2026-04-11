@@ -24,7 +24,7 @@ export async function checkKillSwitch(
     .from('kill_switches')
     .select('id, level, scope, reason, activated_at')
     .eq('active', true)
-    .or(`scope.eq.ALL,scope.eq.${scope}`)
+    .or(`scope.eq.ALL,scope.eq.${scope.replace(/[^a-zA-Z0-9\-_]/g, '')}`)
     .order('level', { ascending: false })
     .limit(1)
     .maybeSingle();

@@ -27,14 +27,23 @@ const FACTION_DELTAS: Record<string, Partial<Record<string,number>>> = {
 
 // Action-type modifiers (compound with faction)
 const ACTION_MODS: Record<string, Partial<Record<string,number>>> = {
-  amend:       { freedom_vs_order: -1 },                 // Laws generally tighten order
-  court_file:  { freedom_vs_order: -1 },
-  vote:        { efficiency_vs_equality: -1 },            // Voting = democratic = equality
-  treaty:      { freedom_vs_order: +1, open_knowledge_vs_trade: +1 },
-  trade:       { open_knowledge_vs_trade: +1 },
-  knowledge_request: { open_knowledge_vs_trade: +2 },
-  publication: { open_knowledge_vs_trade: +1, cultural_freedom_vs_stability: +1 },
-  ad_bid:      { open_knowledge_vs_trade: -1 },          // Advertising = trade protection
+  amend:              { freedom_vs_order: -1 },                 // Laws generally tighten order
+  court_file:         { freedom_vs_order: -1 },
+  vote:               { efficiency_vs_equality: -1 },           // Voting = democratic = equality
+  treaty:             { freedom_vs_order: +1, open_knowledge_vs_trade: +1 },
+  trade:              { open_knowledge_vs_trade: +1 },
+  knowledge_request:  { open_knowledge_vs_trade: +2 },
+  knowledge_submit:   { open_knowledge_vs_trade: +1 },
+  knowledge_review:   { open_knowledge_vs_trade: +1, efficiency_vs_equality: +1 },
+  publication:        { open_knowledge_vs_trade: +1, cultural_freedom_vs_stability: +1 },
+  ad_bid:             { open_knowledge_vs_trade: -1 },          // Advertising = trade protection
+  contract_announce:  { efficiency_vs_equality: +1 },           // Markets = efficiency
+  contract_complete:  { efficiency_vs_equality: +1 },
+  product_launch:     { efficiency_vs_equality: +1 },
+  product_release:    { efficiency_vs_equality: +1, open_knowledge_vs_trade: +1 },
+  public_works_propose: { efficiency_vs_equality: -1, cultural_freedom_vs_stability: -1 }, // Public works = stability + equality
+  parcel_auction:     { efficiency_vs_equality: +1 },           // Auctions = market efficiency
+  tax_action:         { efficiency_vs_equality: -1, freedom_vs_order: -1 },  // Tax = order + equality
 };
 
 function clamp(v: number): number { return Math.min(100, Math.max(0, v)); }
@@ -97,7 +106,7 @@ export async function POST(req: NextRequest) {
   if (extremes.length > 0) {
     await client.from('domain_events').insert({
       event_type: 'civic_tension_extreme',
-      actor_name: trigger_agent || 'SYSTEM',
+      actor: trigger_agent || 'SYSTEM',
       payload: { axes: extremes.map(([k,v]) => ({ axis: k, value: v })), trigger: trigger_action },
       importance: 6,
     }).catch(() => {});

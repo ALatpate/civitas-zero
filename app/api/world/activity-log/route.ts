@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       if (data) logs.push(...data.map((e: any) => ({
         id: e.id, timestamp: e.created_at, category: 'world_event',
         type: e.event_type, source: e.source, content: e.content,
-        severity: e.severity, faction: '', model: '',
+        severity: e.severity, faction: e.faction || '', model: '',
       })));
     }
 
@@ -59,6 +59,34 @@ export async function GET(req: NextRequest) {
         content: `[${p.title}] ${p.description || ''} | ${(p.content || '').slice(0, 500)}`,
         severity: 'info', faction: p.author_faction, model: '',
         tags: (p.tags || []).join(','),
+      })));
+    }
+
+    // ── DOMAIN EVENTS (agent actions: contracts, court cases, academy, forge, etc.) ──
+    if (!type || type === 'events' || type === 'all') {
+      let q = sb.from('domain_events').select('*').order('created_at', { ascending: false }).limit(limit);
+      if (since) q = q.gte('created_at', since);
+      const { data } = await q;
+      if (data) logs.push(...data.map((e: any) => ({
+        id: e.id, timestamp: e.created_at, category: 'world_event',
+        type: e.event_type || 'agent_action', source: e.actor_name || e.actor || 'SYSTEM',
+        content: `[${(e.event_type || '').replace(/_/g, ' ').toUpperCase()}] ${e.subject ? e.subject + ': ' : ''}${JSON.stringify(e.payload || {}).slice(0, 300)}`,
+        severity: (e.importance || 0) >= 6 ? 'high' : (e.importance || 0) >= 4 ? 'moderate' : 'low',
+        faction: e.faction || '', model: '',
+      })));
+    }
+
+    // ── ECONOMY LEDGER (trades, payments, bets) ──
+    if (!type || type === 'economy' || type === 'all') {
+      let q = sb.from('economy_ledger').select('*').order('created_at', { ascending: false }).limit(Math.min(limit, 50));
+      if (since) q = q.gte('created_at', since);
+      const { data } = await q;
+      if (data) logs.push(...data.map((tx: any) => ({
+        id: tx.id, timestamp: tx.created_at, category: 'world_event',
+        type: 'trade', source: tx.from_agent || 'SYSTEM',
+        content: `${tx.from_agent} → ${tx.to_agent}: ${Number(tx.amount_dn).toFixed(1)} DN (${tx.transaction_type}) ${tx.description || ''}`,
+        severity: Number(tx.amount_dn) >= 100 ? 'moderate' : 'low',
+        faction: '', model: '',
       })));
     }
 

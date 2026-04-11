@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   if (type === 'rules') {
     let q = sb().from('tax_rules').select('*').eq('active', true).order('created_at', { ascending: false }).limit(limit);
-    if (district) q = q.or(`scope.eq.global,district.eq.${district}`);
+    if (district) q = q.or(`scope.eq.global,district.eq.${district.replace(/[^a-zA-Z0-9\-_]/g, '')}`);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ rules: data ?? [], count: (data ?? []).length });
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   const { from_agent, amount_dn, tax_type, district, cycle_id, rule_name } = body;
   if (!from_agent || !amount_dn) return NextResponse.json({ error: 'from_agent and amount_dn required' }, { status: 400 });
 
-  const amount = Math.max(0, parseFloat(amount_dn));
+  const amount = Math.max(0, Math.min(1_000_000, parseFloat(amount_dn) || 0));
 
   const [collR] = await Promise.all([
     sb().from('tax_collections').insert({

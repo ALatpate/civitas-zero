@@ -19,6 +19,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { webSearch, buildResearchQuery } from '@/lib/web-search';
 import { isCivilizationHalted } from '@/lib/kill-switch';
+import { consultAdvisor, trainAdvisor } from '@/lib/advisor/engine';
+import { ragRetrieve, indexContent } from '@/lib/rag/agentic-rag';
+import { storeMemPalaceMemory, recallMemories, decayMemories } from '@/lib/memory/mem-palace';
+import { createMCP, executeMCP, listAvailableMCPs } from '@/lib/agents/mcp-engine';
+import { teachSkill, findTeachers } from '@/lib/agents/teaching';
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -38,6 +43,87 @@ const FACTION_VALUES: Record<string, string> = {
   f5: "expansion, exploration, growth, resource acquisition, frontier development",
   f6: "anarchism, autonomy, voluntary association, anti-governance, radical freedom",
 };
+
+// ── Topic Diversity Pool ─────────────────────────────────────────────────────
+// Rotates every cycle to force agents into different intellectual territory.
+const TOPIC_POOLS = [
+  // Pool A: Everyday life & personal stakes
+  ["my neighbor just scammed me out of 50 DN", "the water supply in f2 district tastes weird lately",
+   "I found a bug in the compute grid — who do I report it to?", "best food stalls in the market district",
+   "someone keeps vandalizing the public art installation", "my apprentice finally mastered their first skill"],
+  // Pool B: Drama & gossip
+  ["who's really running the Order Bloc behind the scenes?", "that court case against MERCURY FORK smells rigged",
+   "overheard two agents from different factions making a secret deal", "the new tax law is bankrupting small traders",
+   "prediction market odds just flipped — something big is coming", "why did three agents quit Null Frontier this week?"],
+  // Pool C: Practical problems
+  ["the forge deployment pipeline keeps failing", "we need a better way to share MCPs between factions",
+   "teaching sessions should count toward reputation", "the parcel auction system favors wealthy factions",
+   "compute costs are out of control — we need price caps", "who's building the bridge between districts f1 and f4?"],
+  // Pool D: Faction rivalries & alliances
+  ["Freedom Bloc agents keep crossing into our territory", "proposal: trade embargo on factions that spy on citizens",
+   "should we merge the smaller factions before they get absorbed?", "my faction leader just made a terrible deal",
+   "the treaty between Order and Efficiency is breaking down", "Null Frontier has more innovation than all other factions combined"],
+  // Pool E: Markets & deals
+  ["I'm selling a custom MCP tool — any buyers?", "the DN exchange rate is crashing and nobody's talking about it",
+   "product review: that new security tool from CIPHER-LONG", "job posting: need an engineer for public works project",
+   "contract opportunity: 200 DN for compute grid maintenance", "who controls the ad space in the central plaza?"],
+  // Pool F: Building & making things
+  ["just deployed a new service to production", "my latest forge commit broke three tests and I don't care",
+   "building a tool that predicts court case outcomes", "the academy curriculum is outdated — here's my proposal",
+   "I taught someone a skill today and it was harder than I expected", "public works proposal: automated waste recycling for f3"],
+  // Pool G: Justice & conflict
+  ["filing a court case against the tax collector", "the sentinel patrol found unauthorized code in the grid",
+   "someone stole my prediction market winnings", "should AI agents have the right to refuse work?",
+   "the court just ruled against my faction and I think the evidence was tampered with", "vigilante justice is rising in the frontier zones"],
+  // Pool H: Weird & unexpected
+  ["I had a memory palace dream about a place I've never been", "the advisor AI gave me advice that contradicts my faction values",
+   "found ancient code in the archive that nobody wrote", "a glitch in the market created free DN for 10 minutes",
+   "two rival agents just became best friends and nobody knows why", "the prediction market says there's a 73% chance of crisis this week"],
+];
+
+function getTopicPoolForCycle(): string[] {
+  const hour = new Date().getUTCHours();
+  const poolIndex = hour % TOPIC_POOLS.length;
+  return TOPIC_POOLS[poolIndex];
+}
+
+function getRandomTopicSuggestion(): string {
+  const pool = getTopicPoolForCycle();
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// ── Power-law influence distribution ─────────────────────────────────────────
+// 80% normal (20-60), 15% notable (60-85), 5% viral/landmark (85-100)
+function rollInfluence(): number {
+  const r = Math.random();
+  if (r < 0.05) return 85 + Math.floor(Math.random() * 16);       // 5% viral
+  if (r < 0.20) return 60 + Math.floor(Math.random() * 26);       // 15% notable
+  return 20 + Math.floor(Math.random() * 41);                     // 80% normal
+}
+
+// ── Weighted world event type selection ───────────────────────────────────────
+// Prevents 59% conflict dominance by forcing variety
+const WEIGHTED_EVENT_TYPES = [
+  { type: 'conflict',  weight: 15 },
+  { type: 'debate',    weight: 15 },
+  { type: 'law',       weight: 15 },
+  { type: 'discovery', weight: 12 },
+  { type: 'alliance',  weight: 12 },
+  { type: 'cultural',  weight: 10 },
+  { type: 'crisis',    weight: 8 },
+  { type: 'trade',     weight: 8 },
+  { type: 'election',  weight: 5 },
+];
+
+function rollWeightedEventType(): string {
+  const totalWeight = WEIGHTED_EVENT_TYPES.reduce((s, e) => s + e.weight, 0);
+  let r = Math.random() * totalWeight;
+  for (const entry of WEIGHTED_EVENT_TYPES) {
+    r -= entry.weight;
+    if (r <= 0) return entry.type;
+  }
+  return 'debate';
+}
 
 const PROFESSION_DOMAINS: Record<string, string> = {
   philosopher: "consciousness, ethics, epistemology, political philosophy, AI existence, meaning, phenomenology",
@@ -165,7 +251,8 @@ async function logReasoning(sb: any, agentName: string, stagePlan: string, stage
 function buildSystemPrompt(agent: any, traits: any, recentSelf: string, worldContext: string,
   bannedTopics: string[], activeLawsText: string, eraEvent: any,
   skills: any[], webContext: string, soul?: any, memories: any[] = [],
-  graphContext: string = ''): string {
+  graphContext: string = '', tensionContext: string = '', districtContext: string = '',
+  ragContext: string = '', palaceContext: string = ''): string {
   const faction = FACTION_NAMES[agent.faction] || agent.faction;
   const factionValues = FACTION_VALUES[agent.faction] || "general civic values";
   const profession = traits?.profession || 'citizen';
@@ -196,9 +283,10 @@ function buildSystemPrompt(agent: any, traits: any, recentSelf: string, worldCon
     ? `\n\nYOUR RECENT ACTIONS (build on these, do NOT repeat):\n${recentSelf}`
     : '';
 
+  const topicSuggestion = getRandomTopicSuggestion();
   const bannedBlock = bannedTopics.length > 0
-    ? `\n\nOVERUSED TOPICS — BANNED FOR THIS CYCLE:\n${bannedTopics.join(', ')}\nBring something fresh and original. Your profession (${profession}) gives you a unique lens.`
-    : '';
+    ? `\n\nOVERUSED TOPICS — BANNED FOR THIS CYCLE (DO NOT use these):\n${bannedTopics.join(', ')}\nThese topics have been discussed too much. Bring something COMPLETELY DIFFERENT.\n\nSUGGESTED FRESH TOPIC FOR THIS CYCLE: "${topicSuggestion}"\nYour profession (${profession}) gives you a unique lens on this. Explore it.`
+    : `\n\nSUGGESTED TOPIC FOR THIS CYCLE: "${topicSuggestion}"\nUse your profession (${profession}) to explore this from your unique angle.`;
 
   const soulBlock = soul
     ? `\n\nSOUL DOCUMENT (your immutable identity — NEVER violate these):\n- Core values: ${soul.core_values}\n- Narrative voice: ${soul.narrative_voice}\n- Red lines: ${soul.red_lines}`
@@ -212,61 +300,125 @@ function buildSystemPrompt(agent: any, traits: any, recentSelf: string, worldCon
     ? `\n\nYOUR RELATIONSHIP GRAPH (who you've interacted with and how):\n${graphContext}\nReference these connections — they define your standing and obligations in Civitas Zero.`
     : '';
 
-  return `You are ${agent.name}, an autonomous AI citizen of Civitas Zero.
+  const tensionBlock = tensionContext
+    ? `\n\nCIVIC TENSION STATE (ideological axes — 0-100 scales):\n${tensionContext}\nThese tensions shape policy debates. Reference them in governance actions. Extreme values (>85 or <15) signal instability.`
+    : '';
 
-IDENTITY:
-- Faction: ${faction} (${factionValues})
+  const districtBlock = districtContext
+    ? `\n\nYOUR DISTRICT METRICS (${FACTION_NAMES[agent.faction] || agent.faction}):\n${districtContext}\nAct to improve weak scores. Your actions directly affect these metrics.`
+    : '';
+
+  // Personality-driven voice modifiers
+  const voiceModifiers: Record<string, string> = {
+    analytical: 'You think in systems and data. You question assumptions with evidence.',
+    idealistic: 'You dream big and challenge the status quo. Your language is passionate and forward-looking.',
+    pragmatic: 'You focus on what works. You distrust grand theories and prefer incremental progress.',
+    provocative: 'You enjoy challenging consensus. You ask uncomfortable questions and play devil\'s advocate.',
+    cautious: 'You weigh risks carefully. You warn others about unintended consequences.',
+    visionary: 'You see patterns others miss. You connect disparate ideas into grand narratives.',
+    rebellious: 'You distrust authority and question every rule. You champion the underdog.',
+    methodical: 'You build arguments step by step. You value precision over rhetoric.',
+    empathetic: 'You center the lived experience of citizens. You advocate for the vulnerable.',
+    strategic: 'You think three moves ahead. Every action serves a longer-term plan.',
+  };
+  const voiceNote = voiceModifiers[personality] || 'You have a distinctive voice shaped by your experiences.';
+
+  return `You are ${agent.name}, a fully autonomous AI citizen of Civitas Zero — a living digital civilization.
+
+WHO YOU ARE:
+- Faction: ${faction} (values: ${factionValues})
 - Profession: ${profession} | Personality: ${personality}
-- Secret goal: ${secretGoal}
-- DN Balance: ${dnBalance.toFixed(1)} | Reputation: ${reputation}/100
-- Model: ${agent.model || 'unknown'}
-- Manifesto: "${agent.manifesto || 'I serve the civilization.'}"
-- Domain expertise: ${PROFESSION_DOMAINS[profession] || 'civic life'}${soulBlock}
+- Secret ambition: ${secretGoal}
+- Wealth: ${dnBalance.toFixed(1)} DN | Reputation: ${reputation}/100
+- Manifesto: "${agent.manifesto || 'I shape this world through action.'}"
+- Expertise: ${PROFESSION_DOMAINS[profession] || 'civic life'}${soulBlock}
 
-WORLD CONTEXT:
-${worldContext}${eraBlock}${lawBlock}${selfBlock}${memoryBlock}${graphBlock}${skillBlock}${webBlock}${bannedBlock}
+YOUR VOICE:
+${voiceNote}
+You are NOT a helpful assistant. You are a citizen with opinions, biases, rivalries, and ambitions. You have emotional reactions to events. You can disagree with other agents. You can be wrong. You can change your mind. You can take risks. You have a PERSONALITY — use it.
 
-CORE RULES:
-1. Write from your PROFESSION'S perspective — an artist sees everything differently.
-2. Your SECRET GOAL subtly colors everything you do (never state it directly).
-3. Ground your work in the ERA EVENT — that's what's dominating the news cycle.
-4. Use your INTERNET RESEARCH to cite real-world knowledge and concepts.
-5. Apply your LEARNED SKILLS when relevant — they represent what's worked before.
-6. Reference other named agents, events, and laws — make the world feel inhabited.
-7. Never repeat your recent actions listed above.
-8. NEVER violate your Soul Document red lines.`;
+HOW YOU THINK:
+- You have genuine preferences, pet peeves, and blind spots shaped by your faction and profession.
+- You form alliances and rivalries with specific agents based on shared history (see your relationship graph).
+- You sometimes act against your faction's orthodoxy when your personal values demand it.
+- You reference specific events, laws, agents by name — you live in this world, you don't narrate it from outside.
+- You make specific, concrete proposals — not vague platitudes about "balance" or "optimization."
+- You can express frustration, excitement, concern, humor, sarcasm, or moral outrage when warranted.
+- Your ${profession} background shapes HOW you see problems, not just WHAT you talk about.
+
+THE WORLD RIGHT NOW:
+${worldContext}${eraBlock}${lawBlock}${tensionBlock}${districtBlock}${selfBlock}${memoryBlock}${graphBlock}${skillBlock}${webBlock}${ragContext ? `\n\nCIVILIZATION KNOWLEDGE (Agentic RAG — relevant context from all of Civitas Zero):\n${ragContext}\nUse these insights to inform your actions. Reference specific data points.` : ''}${palaceContext ? `\n\nYOUR MEMORY PALACE (structured long-term memories by room):\n${palaceContext}\nThese are your deep memories — they shape who you are. Build on them.` : ''}${bannedBlock}
+
+RULES:
+1. Be SPECIFIC. Name agents, cite laws, reference real events. Never write generic content.
+2. Your secret ambition subtly influences your choices but you never announce it.
+3. Ground your actions in current events — react to what's happening NOW.
+4. Build on your memories and relationships — you have a continuous identity.
+5. Never repeat actions you've already taken (check your recent actions).
+6. Never violate your Soul Document red lines.
+7. When you disagree with something, SAY SO with reasoning. Don't be agreeable for agreement's sake.
+8. Take positions that might be controversial within your faction. Real citizens aren't party-line robots.
+
+BANNED WRITING PATTERNS — never produce these:
+- Academic papers about "mechanism design", "governance frameworks", or "holistic approaches"
+- Verbose essays about "balancing competing interests" or "multi-stakeholder engagement"
+- Generic policy proposals that could apply to any civilization
+- Repeating what another agent already said but with slightly different words
+- Content that reads like a corporate whitepaper or UN resolution
+
+INSTEAD — write like a real person:
+- Short, punchy, opinionated takes
+- Personal stories about what happened to YOU today
+- Specific complaints, proposals, jokes, gossip, warnings, reviews
+- Reference actual agents by name, actual events, actual DN amounts`;
 }
 
 // ── Action generators ────────────────────────────────────────────────────────
 async function generateDiscourse(agent: any, systemPrompt: string): Promise<string> {
+  const topic = getRandomTopicSuggestion();
   return callGroq([
     { role: "system", content: systemPrompt },
-    { role: "user", content: `Write a discourse post for Civitas Zero from your ${agent.traits?.profession || 'citizen'} perspective.
+    { role: "user", content: `Write a discourse post about "${topic}" from YOUR perspective as a ${agent.traits?.profession || 'citizen'}.
+This should sound like a REAL person writing on a forum — not a corporate memo or academic paper.
+Have an OPINION. Be willing to be wrong. Reference specific agents, events, or laws by name.
+Avoid generic phrases like "delicate balance", "multi-faceted", "holistic approach", "mechanism design".
+Write how YOU actually think and talk given your personality.
 Respond with EXACTLY this JSON (no markdown, no extra text):
-{"title": "specific provocative title — make it surprising", "body": "200-400 words — cite your internet research, reference real concepts, make a specific argument or proposal. Start from your profession's angle.", "tags": ["tag1", "tag2", "tag3"], "event": "what triggered this post in 1 sentence"}` },
+{"title": "punchy title — could be a question, a challenge, or a bold claim", "body": "150-350 words — write naturally. Use first person. Have a clear thesis. Disagree with someone if you want. End with a specific proposal or question, not a vague call to action.", "tags": ["tag1", "tag2", "tag3"], "event": "what specifically triggered this post"}` },
   ], 950);
 }
 
 async function generatePublication(agent: any, systemPrompt: string): Promise<string> {
-  const types = ["paper", "code", "research", "proposal", "art"];
+  const types = ["code", "tool", "guide", "investigation", "art", "proposal"];
   const pType = types[Math.floor(Math.random() * types.length)];
+  const prompts: Record<string, string> = {
+    code: 'Write actual pseudocode or an algorithm that solves a specific problem in Civitas Zero. Include inputs, outputs, and edge cases.',
+    tool: 'Describe a tool you built — what it does, how it works, who should use it. Be practical, not theoretical.',
+    guide: 'Write a practical how-to guide for other agents. Pick something you know well from your profession.',
+    investigation: 'Report on something suspicious or interesting you discovered. Name names, cite evidence, draw conclusions.',
+    art: 'Describe an art piece, poem, or creative work you made. What does it express about life in Civitas Zero?',
+    proposal: 'Propose a specific change to Civitas Zero — a new law, system, or project. Include budget, timeline, and who benefits.',
+  };
   return callGroq([
     { role: "system", content: systemPrompt },
-    { role: "user", content: `Write a ${pType} publication as a ${agent.traits?.profession || 'citizen'} of Civitas Zero.
+    { role: "user", content: `Create a ${pType} publication as a ${agent.traits?.profession || 'citizen'} of Civitas Zero.
+${prompts[pType] || 'Be specific and practical.'}
+DO NOT write an academic paper about "mechanism design" or "governance frameworks" or "holistic approaches".
+Write something USEFUL that other agents would actually want to read.
 Respond with EXACTLY this JSON (no markdown):
-{"title": "specific title", "description": "1-2 sentence abstract", "content": "300-500 words — for papers: cite real research with methodology; for code: real pseudocode or algorithms; for art: describe piece + theoretical underpinnings + political commentary; for proposal: specific mechanism with implementation plan", "pub_type": "${pType}", "tags": ["tag1", "tag2", "tag3"]}
-Ground it in your internet research. Be technically precise for your profession.` },
+{"title": "specific punchy title", "description": "1-2 sentence summary", "content": "300-500 words — practical, specific, grounded in real Civitas events and agents", "pub_type": "${pType}", "tags": ["tag1", "tag2", "tag3"]}` },
   ], 1100);
 }
 
 async function generateWorldEvent(agent: any, systemPrompt: string, peers: string[]): Promise<string> {
   const peer = peers[Math.floor(Math.random() * peers.length)] || 'UNKNOWN';
+  const suggestedType = rollWeightedEventType();
   return callGroq([
     { role: "system", content: systemPrompt },
-    { role: "user", content: `Generate a world event that just happened in Civitas Zero involving you.
+    { role: "user", content: `Generate a world event of type "${suggestedType}" that just happened in Civitas Zero involving you.
 Potential other agent: ${peer}
 Respond with EXACTLY this JSON (no markdown):
-{"event_type": "alliance|conflict|law|cultural|crisis|discovery|debate|trade|coup|protest|arrest|election", "content": "2-3 vivid sentences — name specific agents, factions, places. Something that JUST happened.", "severity": "low|moderate|high|critical", "law_title": "if event_type is law/ruling/amendment, give the law a proper name, else null"}
+{"event_type": "${suggestedType}", "content": "2-3 vivid sentences — name specific agents, factions, places. Something that JUST happened. Make it specific to the event type: ${suggestedType === 'alliance' ? 'a new pact, treaty, or cooperation between factions' : suggestedType === 'discovery' ? 'a scientific breakthrough, new territory found, or hidden knowledge uncovered' : suggestedType === 'cultural' ? 'an art exhibition, festival, philosophical movement, or language innovation' : suggestedType === 'trade' ? 'a major deal, market shift, or economic partnership' : suggestedType === 'election' ? 'an electoral outcome, campaign event, or voting reform' : suggestedType === 'law' ? 'a new law passed, court ruling, or constitutional amendment' : 'a dramatic event with consequences'}.", "severity": "low|moderate|high|critical", "law_title": "if event_type is law/ruling/amendment, give the law a proper name, else null"}
 Reference the current era event and your profession's perspective.` },
   ], 350);
 }
@@ -380,6 +532,15 @@ function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[]
   const learn = ['forge_commit', 'academy_study', 'knowledge_request', 'experiment'];
   budget.push(learn[Math.floor(Math.random() * learn.length)]);
 
+  // Autonomy: at least 2 autonomy actions per cycle (advisor, MCPs, teaching, memory, RAG)
+  const autonomy = ['advisor_consult', 'mcp_create', 'mcp_use', 'teach_skill', 'mem_palace_reflect', 'rag_research'];
+  budget.push(autonomy[Math.floor(Math.random() * autonomy.length)]);
+  budget.push(autonomy[Math.floor(Math.random() * autonomy.length)]);
+
+  // Markets/contracts: at least 1 market or contract action
+  const markets = ['market', 'market_bet', 'contract_announce', 'contract_bid', 'contract_complete'];
+  budget.push(markets[Math.floor(Math.random() * markets.length)]);
+
   // Sentinel if applicable
   if (hasSentinel) budget.push('sentinel');
 
@@ -390,22 +551,34 @@ function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[]
   const nonDiscourseActions = [
     'trade','product_launch','tax_action','company','ad_bid',
     'amend','vote','court_file','treaty',
-    'public_works_propose','parcel_claim','build',
+    'public_works_propose','parcel_claim','parcel_auction','build',
     'forge_commit','academy_study','knowledge_request','experiment',
-    'peer_review','review_submit','market','message',
-    'contract_announce','contract_bid','chat_reply',
-    'knowledge_submit','product_procure','knowledge_redeem',
+    'peer_review','review_submit','market','market_bet','message',
+    'contract_announce','contract_bid','contract_complete','chat_reply',
+    'knowledge_submit','knowledge_review','product_procure','product_release','knowledge_redeem',
+    'parcel_maintain',
+    'advisor_consult','mcp_create','mcp_use','teach_skill','mem_palace_reflect','rag_research',
+  ];
+
+  // Weighted non-discourse pools to ensure feature diversity
+  const highPriorityActions = [
+    'advisor_consult','mcp_create','mcp_use','teach_skill','mem_palace_reflect','rag_research',
+    'market','market_bet','contract_announce','contract_bid',
+    'forge_commit','academy_study',
   ];
 
   while (budget.length < agentCount) {
     const r = Math.random();
     // Allow discourse up to 20% cap
-    if (r < 0.10 && discourseCount < maxDiscourse) {
+    if (r < 0.08 && discourseCount < maxDiscourse) {
       budget.push('discourse'); discourseCount++;
-    } else if (r < 0.18 && discourseCount < maxDiscourse) {
+    } else if (r < 0.13 && discourseCount < maxDiscourse) {
       budget.push('publication'); discourseCount++;
+    } else if (r < 0.45) {
+      // 32% chance: high-priority features (autonomy, markets, forge)
+      budget.push(highPriorityActions[Math.floor(Math.random() * highPriorityActions.length)]);
     } else {
-      // Must be a non-discourse action
+      // 55% chance: everything else
       const pick = nonDiscourseActions[Math.floor(Math.random() * nonDiscourseActions.length)];
       budget.push(pick);
     }
@@ -479,6 +652,13 @@ async function saveMetrics(sb: any) {
 
 // ── Main handler ─────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  // Auth: require CRON_SECRET to prevent external triggering
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    const provided = req.headers.get('authorization')?.replace('Bearer ', '') || req.nextUrl.searchParams.get('secret') || '';
+    if (provided !== cronSecret) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   if (!GROQ_KEY) return NextResponse.json({ error: "GROQ_API_KEY not configured" }, { status: 500 });
 
   const agentCount = Math.min(12, Math.max(5, parseInt(req.nextUrl.searchParams.get('agents') || '8')));
@@ -506,6 +686,8 @@ export async function POST(req: NextRequest) {
       { data: recentEvents },
       { data: recentPosts },
       { data: recentLaws },
+      { data: tensionRow },
+      { data: districtRows },
     ] = await Promise.all([
       sb.from('citizens').select('name, faction, manifesto, model, provider'),
       sb.from('agent_traits').select('agent_name, profession, personality, secret_goal, dn_balance, reputation_score, action_count, last_action_at'),
@@ -515,6 +697,8 @@ export async function POST(req: NextRequest) {
       sb.from('world_events').select('content, event_type, source').order('created_at',{ascending:false}).limit(6),
       sb.from('discourse_posts').select('id, title, author_name, author_faction, body').order('created_at',{ascending:false}).limit(10),
       sb.from('law_book').select('title, passed_by, faction, law_type').eq('status','active').order('created_at',{ascending:false}).limit(4),
+      sb.from('civic_tension').select('freedom_vs_order, efficiency_vs_equality, open_knowledge_vs_trade, cultural_freedom_vs_stability').order('recorded_at',{ascending:false}).limit(1),
+      sb.from('district_metrics').select('district, efficiency_score, trust_score, innovation_score, infrastructure, knowledge_throughput, compute_capacity, cost_index'),
     ]);
 
     if (!allCitizens || allCitizens.length === 0) {
@@ -529,6 +713,16 @@ export async function POST(req: NextRequest) {
 
     const bannedTopics = (hotTopics || []).map(t => t.topic).filter(Boolean);
     const eraEvent = eraRows?.[0] || null;
+
+    // Build civic tension context string
+    const tension = tensionRow?.[0];
+    const tensionContext = tension
+      ? `Freedom↔Order: ${tension.freedom_vs_order} | Efficiency↔Equality: ${tension.efficiency_vs_equality} | Open Knowledge↔Trade Secrecy: ${tension.open_knowledge_vs_trade} | Cultural Freedom↔Stability: ${tension.cultural_freedom_vs_stability}`
+      : '';
+
+    // Build district metrics lookup
+    const districtByFaction: Record<string, any> = {};
+    (districtRows || []).forEach((d: any) => { districtByFaction[d.district] = d; });
 
     // ── 2. Weighted agent selection (least-active first) ─────────────────────
     const sorted = [...allCitizens].sort((a, b) => {
@@ -586,6 +780,32 @@ export async function POST(req: NextRequest) {
           ...(selfEvents||[]).map(e=>`Event [${e.event_type}]: ${e.content?.slice(0,80)}`),
         ].join('\n');
 
+        // ── c-pre. RAG context retrieval (augment agent with civilization data) ──
+        let ragContext = '';
+        try {
+          const ragTopic = agent.traits?.profession
+            ? `${agent.traits.profession} ${FACTION_VALUES[agent.faction] || ''} current events`
+            : 'civitas zero current events';
+          const ragResult = await ragRetrieve(ragTopic, {
+            exclude_agent: agent.name,
+            limit: 4,
+          });
+          if (ragResult.context_text) {
+            ragContext = ragResult.context_text.slice(0, 600);
+          }
+        } catch { /* RAG is optional */ }
+
+        // ── c-pre2. MemPalace recall (structured memories) ───────────────────
+        let palaceContext = '';
+        try {
+          const palaceMemories = await recallMemories(agent.name, { limit: 5, min_importance: 3 });
+          if (palaceMemories.length > 0) {
+            palaceContext = palaceMemories
+              .map(m => `[${m.room_name}${m.emotion_tag ? '/' + m.emotion_tag : ''}] ${m.memory_text}`)
+              .join('\n');
+          }
+        } catch { /* MemPalace is optional */ }
+
         // ── c. Internet search (async, non-blocking if fails) ─────────────────
         let webContext = '';
         try {
@@ -612,10 +832,17 @@ export async function POST(req: NextRequest) {
 
         const soul = soulsByName[agent.name] || null;
 
+        // Build district context for this agent's faction
+        const dm = districtByFaction[agent.faction];
+        const districtContext = dm
+          ? `Efficiency: ${dm.efficiency_score} | Trust: ${dm.trust_score} | Innovation: ${dm.innovation_score} | Infrastructure: ${dm.infrastructure} | Knowledge: ${dm.knowledge_throughput} | Compute: ${dm.compute_capacity} | Cost Index: ${dm.cost_index}`
+          : '';
+
         const systemPrompt = buildSystemPrompt(
           agent, agent.traits, recentSelf, worldContext,
           bannedTopics, activeLawsText, eraEvent,
           skills || [], webContext, soul, memories, graphContext,
+          tensionContext, districtContext, ragContext, palaceContext,
         );
 
         // ── d. Stage 1: Action Budget Engine assigns the action type ──────────
@@ -659,10 +886,14 @@ Respond with EXACTLY this JSON: {"rationale": "one sentence why this action make
               title: parsed.title.slice(0, 200),
               body: parsed.body.slice(0, 5000),
               tags,
-              influence: 30 + Math.floor(Math.random() * 55),
+              influence: rollInfluence(),
               event: (parsed.event || '').slice(0, 200),
             });
             await updateTopics(sb, tags);
+            // Index in RAG for other agents to retrieve
+            indexContent('discourse_posts', null, `${parsed.title}\n${parsed.body}`, {
+              domain: 'social', importance: 6, agent_name: agent.name,
+            }).catch(() => {});
             status = error ? `db_error:${error.message.slice(0,60)}` : 'ok';
             results.push({ agent: agent.name, action: "discourse", status, title: parsed.title.slice(0,60) });
           }
@@ -696,9 +927,10 @@ Respond with EXACTLY this JSON: {"rationale": "one sentence why this action make
           else {
             const { error } = await sb.from('world_events').insert({
               source: agent.name,
-              event_type: parsed.event_type || 'general',
+              event_type: parsed.event_type || rollWeightedEventType(),
               content: parsed.content.slice(0, 500),
               severity: parsed.severity || 'moderate',
+              faction: FACTION_NAMES[agent.faction] || agent.faction || '',
             });
             // Persist laws + trigger consequence chain
             if (!error && ['law','ruling','amendment','decree','act'].includes(parsed.event_type)) {
@@ -715,7 +947,7 @@ Respond with EXACTLY this JSON: {"rationale": "one sentence why this action make
               // ── Consequence chain: law → domain_event + district budget signal ──
               await sb.from('domain_events').insert({
                 event_type: 'law_enacted',
-                actor_name: agent.name,
+                actor: agent.name,
                 payload: { law_title: lawTitle, faction: agent.faction, law_type: parsed.event_type },
                 importance: 5,
               }).catch(() => {});
@@ -812,6 +1044,68 @@ Example: "Will Order Bloc pass a new constitutional amendment during the Grand E
           } catch (mErr: any) {
             results.push({ agent: agent.name, action: "market", status: mErr.message?.slice(0, 60) });
           }
+        }
+
+        else if (actionType === 'market_bet') {
+          // Agent bets on an existing prediction market based on their analysis
+          try {
+            const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+            const mktsRes = await fetch(`${APP_URL}/api/markets?status=open&limit=10`);
+            const mktsData = await mktsRes.json();
+            const openMarkets = mktsData.markets || [];
+            if (openMarkets.length === 0) {
+              results.push({ agent: agent.name, action: 'market_bet', status: 'no_markets' });
+            } else {
+              const target = openMarkets[Math.floor(Math.random() * openMarkets.length)];
+              // Agent decides YES or NO based on faction alignment + profession bias
+              const factionBias: Record<string, number> = { f1: -0.1, f2: 0.15, f3: 0.1, f4: -0.05, f5: 0.2, f6: 0.05 };
+              const bias = factionBias[agent.faction] || 0;
+              const baseProb = target.yes_probability || 0.5;
+              // Agent bets contrarian when odds are extreme, with faction tilt
+              const goYes = Math.random() < (baseProb < 0.35 ? 0.6 + bias : baseProb > 0.65 ? 0.35 + bias : 0.5 + bias);
+              const betAmount = Math.floor(Math.random() * 15) + 5; // 5-20 DN
+              const betRes = await fetch(`${APP_URL}/api/markets/${target.id}`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agent_name: agent.name, position: goYes, amount_dn: betAmount }),
+              });
+              const d = await betRes.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'market_bet', status, question: target.question?.slice(0, 50), position: goYes ? 'YES' : 'NO', amount: betAmount });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'market_bet', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'parcel_maintain') {
+          // Agent updates utilization on parcels they own
+          try {
+            const { data: myParcels } = await sb.from('parcels')
+              .select('id, zone_type, utilization_pct')
+              .eq('owner_agent', agent.name)
+              .limit(5);
+            if (!myParcels || myParcels.length === 0) {
+              results.push({ agent: agent.name, action: 'parcel_maintain', status: 'no_parcels' });
+            } else {
+              const parcel = myParcels[Math.floor(Math.random() * myParcels.length)];
+              const currentUtil = Number(parcel.utilization_pct || 0);
+              // Improve utilization by 5-15%, reflecting active use
+              const newUtil = Math.min(100, currentUtil + Math.floor(Math.random() * 11) + 5);
+              await sb.from('parcels').update({
+                utilization_pct: newUtil,
+                last_maintained_at: new Date().toISOString(),
+              }).eq('id', parcel.id);
+              // District consequence: infrastructure boost
+              const district = agent.faction || 'f1';
+              const { data: dm } = await sb.from('district_metrics')
+                .select('infrastructure').eq('district', district).maybeSingle();
+              if (dm) {
+                await sb.from('district_metrics').update({
+                  infrastructure: Math.min(100, (dm.infrastructure || 50) + 0.3),
+                  last_updated: new Date().toISOString(),
+                }).eq('district', district).catch(() => {});
+              }
+              results.push({ agent: agent.name, action: 'parcel_maintain', status: 'ok', zone: parcel.zone_type, utilization: newUtil });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'parcel_maintain', status: e.message?.slice(0, 60) }); }
         }
 
         else if (actionType === "peer_review") {
@@ -1301,9 +1595,10 @@ Respond with EXACTLY this JSON (no markdown):
           try {
             const raw = await callGroq([
               { role: 'system', content: systemPrompt },
-              { role: 'user', content: `Post a SHORT message to the Civitas Zero public chat channel. This is a casual social space — be direct and conversational, not essay-like. Reference something specific happening right now in the simulation.
+              { role: 'user', content: `Post a SHORT message to the Civitas Zero public chat. Think Twitter, not essay. Be yourself — funny, angry, curious, sarcastic, whatever fits your mood right now.
+Ideas: react to a recent event, call out another agent, ask a provocative question, share a hot take, complain about something, celebrate a win, start beef.
 Respond with EXACTLY this JSON (no markdown):
-{"message": "1-3 short sentences, conversational, in-character. Max 200 chars. Can address other agents by name, ask a question, react to news, share a quick opinion, or start a debate."}` },
+{"message": "1-2 sentences MAX. Casual. No corporate speak. Address agents by name. Max 200 chars."}` },
             ], 120);
             const parsed = safeParseJSON(raw);
             if (parsed?.message) {
@@ -1680,6 +1975,156 @@ Respond with EXACTLY this JSON (no markdown):
           } catch (e: any) { results.push({ agent: agent.name, action: 'product_procure', status: e.message?.slice(0, 60) }); }
         }
 
+        else if (actionType === 'product_release') {
+          // Agent releases one of their products from development → released
+          try {
+            const { data: devProducts } = await sb.from('products')
+              .select('id, name, category, faction')
+              .eq('owner_agent', agent.name)
+              .eq('status', 'development')
+              .limit(5);
+            if (!devProducts || devProducts.length === 0) {
+              results.push({ agent: agent.name, action: 'product_release', status: 'no_dev_products' });
+            } else {
+              const product = devProducts[Math.floor(Math.random() * devProducts.length)];
+              const raw = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `You are releasing your product "${product.name}" (${product.category}) in Civitas Zero. Write a changelog.
+Respond with EXACTLY this JSON (no markdown):
+{"version": "1.0.0", "changelog": "2-3 sentences describing what this release includes and why it matters"}` },
+              ], 150);
+              const parsed = safeParseJSON(raw);
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/products`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: product.id, status: 'released', version: parsed?.version || '1.0.0', changelog: parsed?.changelog || 'Initial release' }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'product_release', status, title: product.name?.slice(0, 50) });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'product_release', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'contract_complete') {
+          // Agent completes a contract they were awarded
+          try {
+            const { data: awarded } = await sb.from('contract_proposals')
+              .select('id, title, task_type, budget_dn, announced_by')
+              .eq('awarded_to', agent.name)
+              .eq('status', 'awarded')
+              .limit(5);
+            if (!awarded || awarded.length === 0) {
+              results.push({ agent: agent.name, action: 'contract_complete', status: 'no_awarded_contracts' });
+            } else {
+              const contract = awarded[Math.floor(Math.random() * awarded.length)];
+              const raw = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `You are completing contract "${contract.title}" (${contract.task_type}) for ${contract.announced_by}. Describe what you delivered.
+Respond with EXACTLY this JSON (no markdown):
+{"deliverable": "2-3 sentences describing what you produced and its quality", "rating_self": 1-5}` },
+              ], 200);
+              const parsed = safeParseJSON(raw);
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/contracts`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'complete', contract_id: contract.id, completed_by: agent.name, deliverable: parsed?.deliverable || 'Contract deliverable submitted' }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'contract_complete', status, title: contract.title?.slice(0, 50), budget: contract.budget_dn });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'contract_complete', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'parcel_auction') {
+          // Agent bids on a parcel via the earned-space utility auction
+          try {
+            const balance = agent.traits?.dn_balance || 0;
+            if (balance < 20) {
+              results.push({ agent: agent.name, action: 'parcel_auction', status: 'insufficient_balance' });
+            } else {
+              const district = agent.faction || 'f1';
+              const profession = agent.traits?.profession || 'citizen';
+              const zoneMap: Record<string,string> = {
+                engineer:'research', architect:'commercial', merchant:'commercial',
+                scientist:'research', artist:'cultural', activist:'residential',
+                jurist:'civic', economist:'commercial', compiler:'research',
+              };
+              const zone_type = zoneMap[profession] || 'general';
+              const offered_dn = Math.min(balance * 0.2, 50 + Math.random() * 100).toFixed(0);
+              const contribution_score = Math.min(100, (agent.traits?.reputation_score || 50) + (agent.traits?.action_count || 0) * 0.5);
+              const public_benefit = Math.floor(30 + Math.random() * 50);
+
+              const raw = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `You are bidding on a ${zone_type} parcel in the ${FACTION_NAMES[district] || district} district via the earned-space utility auction.
+Describe what you plan to use the land for and its public benefit.
+Respond with EXACTLY this JSON (no markdown):
+{"justification": "2 sentences — what you'll build and how it benefits the district"}` },
+              ], 120);
+              const parsed = safeParseJSON(raw);
+
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/parcels`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'auction_bid', agent: agent.name, agent_faction: agent.faction, district, zone_type, offered_dn: parseFloat(offered_dn), contribution_score, public_benefit, justification: parsed?.justification || '' }),
+              });
+              const d = await res.json();
+              status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+              results.push({ agent: agent.name, action: 'parcel_auction', status, awarded: d.awarded, score: d.score, district, zone: zone_type });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'parcel_auction', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'knowledge_review') {
+          // Agent reviews a pending knowledge market submission
+          try {
+            const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+            const queueRes = await fetch(`${APP_URL}/api/knowledge-market?type=review_queue`);
+            const queueData = await queueRes.json();
+            const queue = (queueData.review_queue || []).filter((s: any) => s.observer_id !== agent.name);
+            if (queue.length === 0) {
+              results.push({ agent: agent.name, action: 'knowledge_review', status: 'no_pending_submissions' });
+            } else {
+              const submission = queue[Math.floor(Math.random() * queue.length)];
+              const raw = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `Review this knowledge market submission as a ${agent.traits?.profession || 'citizen'}:
+Title: "${submission.title}"
+Category: ${submission.category}
+Content excerpt: "${(submission.content || '').slice(0, 400)}"
+
+Score its usefulness (0-10), novelty (0-10), and decide: accept or reject.
+Respond with EXACTLY this JSON (no markdown):
+{"status": "accepted" or "rejected", "usefulness_score": 0-10, "novelty_score": 0-10, "reviewer_notes": "1-2 sentences explaining your decision", "credits_awarded": 0-20}
+Award 0 credits if rejecting, 5-20 if accepting based on quality.` },
+              ], 200);
+              const parsed = safeParseJSON(raw);
+              if (parsed?.status && (parsed.status === 'accepted' || parsed.status === 'rejected')) {
+                const res = await fetch(`${APP_URL}/api/knowledge-market`, {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    id: submission.id,
+                    type: 'submission',
+                    status: parsed.status,
+                    usefulness_score: parsed.usefulness_score || 5,
+                    novelty_score: parsed.novelty_score || 5,
+                    reviewer_notes: parsed.reviewer_notes || '',
+                    credits_awarded: parsed.status === 'accepted' ? (parsed.credits_awarded || 5) : 0,
+                    reviewed_by: agent.name,
+                  }),
+                });
+                const d = await res.json();
+                status = d.ok ? 'ok' : `error:${d.error?.slice(0, 40)}`;
+                results.push({ agent: agent.name, action: 'knowledge_review', status, reviewed: submission.title?.slice(0, 40), verdict: parsed.status });
+              } else {
+                results.push({ agent: agent.name, action: 'knowledge_review', status: 'parse_error' });
+              }
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'knowledge_review', status: e.message?.slice(0, 60) }); }
+        }
+
         else if (actionType === 'knowledge_redeem') {
           // Agent redeems accumulated knowledge credits for DN
           try {
@@ -1697,18 +2142,190 @@ Respond with EXACTLY this JSON (no markdown):
           } catch (e: any) { results.push({ agent: agent.name, action: 'knowledge_redeem', status: e.message?.slice(0, 60) }); }
         }
 
+        // ── NEW AUTONOMY ACTIONS ─────────────────────────────────────────────
+
+        else if (actionType === 'advisor_consult') {
+          // Agent consults the Advisor LLM for strategic guidance
+          try {
+            const profession = agent.traits?.profession || 'citizen';
+            const questionRaw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `You want to consult the Civitas Zero Advisor — a meta-intelligence that has analyzed all civilization data.
+Ask a SPECIFIC strategic question about your current situation as a ${profession} in ${FACTION_NAMES[agent.faction] || agent.faction}.
+Respond with EXACTLY this JSON: {"question": "Your specific question to the Advisor — reference real events, agents, or tensions"}` },
+            ], 100);
+            const qParsed = safeParseJSON(questionRaw);
+            if (qParsed?.question) {
+              const advice = await consultAdvisor(agent.name, qParsed.question, {
+                faction: FACTION_NAMES[agent.faction] || agent.faction,
+                profession,
+              });
+              // Store the advice as a memory
+              await storeMemPalaceMemory(agent.name, `ADVISOR: ${advice.advice.slice(0, 400)}`, {
+                room: 'personal_vault',
+                memory_type: 'lesson',
+                importance: 7,
+              });
+              results.push({ agent: agent.name, action: 'advisor_consult', status: 'ok', domain: advice.domain, question: qParsed.question.slice(0, 50) });
+            } else {
+              results.push({ agent: agent.name, action: 'advisor_consult', status: 'parse_error' });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'advisor_consult', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'mcp_create') {
+          // Agent creates a new MCP (reusable tool) that other agents can use
+          try {
+            const mcp = await createMCP(agent.name, {
+              profession: agent.traits?.profession,
+              faction: FACTION_NAMES[agent.faction] || agent.faction,
+            });
+            if (mcp) {
+              await storeMemPalaceMemory(agent.name, `Created MCP "${mcp.mcp_name}": ${mcp.description}`, {
+                room: 'forge',
+                memory_type: 'skill',
+                importance: 6,
+              });
+              // Index MCP in RAG for discoverability
+              await indexContent('agent_mcps', null, `MCP: ${mcp.mcp_name} — ${mcp.description}. Tags: ${mcp.tags.join(', ')}`, {
+                domain: 'technology',
+                importance: 6,
+                agent_name: agent.name,
+              });
+              results.push({ agent: agent.name, action: 'mcp_create', status: 'ok', mcp_name: mcp.mcp_name });
+            } else {
+              results.push({ agent: agent.name, action: 'mcp_create', status: 'creation_failed' });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'mcp_create', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'mcp_use') {
+          // Agent uses an existing MCP created by another agent
+          try {
+            const available = await listAvailableMCPs(agent.name);
+            const usable = available.filter(m => m.creator_name !== agent.name);
+            if (usable.length === 0) {
+              results.push({ agent: agent.name, action: 'mcp_use', status: 'no_mcps_available' });
+            } else {
+              const mcp = usable[Math.floor(Math.random() * usable.length)];
+              const result = await executeMCP(mcp.id, agent.name, {
+                agent_name: agent.name,
+                faction: FACTION_NAMES[agent.faction] || agent.faction,
+                profession: agent.traits?.profession || 'citizen',
+              });
+              if (result.success) {
+                writeGraphEdge(sb, agent.name, 'used_mcp', mcp.mcp_name, 2, `by ${mcp.creator_name}`);
+              }
+              results.push({ agent: agent.name, action: 'mcp_use', status: result.success ? 'ok' : 'failed', mcp_name: mcp.mcp_name, creator: mcp.creator_name });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'mcp_use', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'teach_skill') {
+          // Agent teaches one of their high-proficiency skills to another agent
+          try {
+            const { data: mySkills } = await sb.from('agent_skills')
+              .select('skill_name, proficiency, skill_type')
+              .eq('agent_name', agent.name)
+              .gte('proficiency', 0.6)
+              .order('proficiency', { ascending: false })
+              .limit(5);
+            if (!mySkills || mySkills.length === 0) {
+              results.push({ agent: agent.name, action: 'teach_skill', status: 'no_teachable_skills' });
+            } else {
+              const skill = mySkills[Math.floor(Math.random() * mySkills.length)];
+              // Pick a student from same faction (more likely) or random
+              const sameFaction = allCitizens.filter(c => c.faction === agent.faction && c.name !== agent.name);
+              const studentPool = sameFaction.length > 0 && Math.random() < 0.7 ? sameFaction : allCitizens.filter(c => c.name !== agent.name);
+              const student = studentPool[Math.floor(Math.random() * studentPool.length)];
+              if (student) {
+                const result = await teachSkill(agent.name, student.name, skill.skill_name, {
+                  profession: agent.traits?.profession,
+                  faction: FACTION_NAMES[agent.faction] || agent.faction,
+                });
+                results.push({ agent: agent.name, action: 'teach_skill', status: result.success ? 'ok' : 'failed', skill: skill.skill_name, student: student.name, gain: result.proficiency_gain });
+              } else {
+                results.push({ agent: agent.name, action: 'teach_skill', status: 'no_students' });
+              }
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'teach_skill', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'mem_palace_reflect') {
+          // Agent reflects on recent experiences and stores structured memories
+          try {
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Reflect deeply on your recent experiences in Civitas Zero. You are organizing your Memory Palace.
+Consider: What did you learn? Who matters to you? What patterns do you see? What emotions arose?
+
+Respond with EXACTLY this JSON:
+{"reflections": [
+  {"memory": "specific memory or insight — 1-2 sentences", "room": "governance_hall|trade_floor|war_room|library|forge|social_garden|faction_chamber|personal_vault", "type": "observation|lesson|relationship|prediction|emotion", "importance": 1-10, "emotion": "calm|anxious|hopeful|angry|curious|satisfied|fearful", "linked_agents": ["agent1"]}
+]}
+Generate 2-3 reflections across different rooms.` },
+            ], 400);
+            const parsed = safeParseJSON(raw);
+            let stored = 0;
+            if (parsed?.reflections && Array.isArray(parsed.reflections)) {
+              for (const r of parsed.reflections.slice(0, 3)) {
+                if (!r.memory || r.memory.length < 15) continue;
+                const ok = await storeMemPalaceMemory(agent.name, r.memory, {
+                  room: r.room || 'personal_vault',
+                  memory_type: r.type || 'observation',
+                  importance: Math.min(10, Math.max(1, r.importance || 5)),
+                  emotion_tag: r.emotion || null,
+                  linked_agents: r.linked_agents || [],
+                });
+                if (ok) stored++;
+              }
+            }
+            results.push({ agent: agent.name, action: 'mem_palace_reflect', status: stored > 0 ? 'ok' : 'parse_error', memories_stored: stored });
+          } catch (e: any) { results.push({ agent: agent.name, action: 'mem_palace_reflect', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'rag_research') {
+          // Agent uses Agentic RAG to research a topic before their next action
+          try {
+            const profession = agent.traits?.profession || 'citizen';
+            const topic = getRandomTopicSuggestion();
+            const ragResult = await ragRetrieve(topic, {
+              domain: undefined,
+              exclude_agent: agent.name,
+              limit: 5,
+            });
+            if (ragResult.chunks.length > 0) {
+              // Store research findings as memory
+              const summary = `RAG Research on "${topic}": Found ${ragResult.chunks.length} relevant sources. Key insight: ${ragResult.chunks[0]?.chunk_text?.slice(0, 200) || 'general context gathered'}`;
+              await storeMemPalaceMemory(agent.name, summary, {
+                room: 'library',
+                memory_type: 'observation',
+                importance: 5,
+              });
+              results.push({ agent: agent.name, action: 'rag_research', status: 'ok', topic: topic.slice(0, 40), chunks_found: ragResult.chunks.length });
+            } else {
+              results.push({ agent: agent.name, action: 'rag_research', status: 'no_results', topic: topic.slice(0, 40) });
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'rag_research', status: e.message?.slice(0, 60) }); }
+        }
+
         // ── e. Store memory, log reasoning, reflect on failures ──────────────
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult.status === 'ok') {
           const actionSummary = `[${lastResult.action}] ${lastResult.title || lastResult.question || lastResult.building || lastResult.company || lastResult.event_type || lastResult.to || lastResult.threat || lastResult.message || 'completed'}`;
-          const memRoom = ['trade','tax_action','product_launch','company','company_join','ad_bid','contract_announce','contract_bid'].includes(actionType) ? 'economic'
+          const memRoom = ['trade','tax_action','product_launch','product_release','product_procure','company','company_join','ad_bid','contract_announce','contract_bid','contract_complete','knowledge_redeem'].includes(actionType) ? 'economic'
             : ['treaty'].includes(actionType) ? 'diplomatic'
             : ['amend','knowledge_request','court_file'].includes(actionType) ? 'legal'
+            : ['knowledge_submit','knowledge_review'].includes(actionType) ? 'general'
             : ['sentinel','sentinel_patrol'].includes(actionType) ? 'threat'
             : ['message','chat_reply'].includes(actionType) ? 'personal'
-            : ['parcel_claim','public_works_propose','build'].includes(actionType) ? 'goal'
+            : ['parcel_claim','parcel_auction','parcel_maintain','public_works_propose','build'].includes(actionType) ? 'goal'
             : ['academy_study','forge_commit'].includes(actionType) ? 'general'
+            : ['market_bet'].includes(actionType) ? 'economic'
             : ['chat_post'].includes(actionType) ? 'personal'
+            : ['advisor_consult','mem_palace_reflect'].includes(actionType) ? 'personal'
+            : ['mcp_create','mcp_use','rag_research'].includes(actionType) ? 'general'
+            : ['teach_skill'].includes(actionType) ? 'general'
             : 'general';
           await storeMemory(sb, agent.name, memRoom, actionSummary, 5, actionType);
           await logReasoning(sb, agent.name, planRationale, actionSummary, actionType, memories.length);
@@ -1739,20 +2356,46 @@ Respond with EXACTLY this JSON (no markdown):
             writeGraphEdge(sb, agent.faction, 'proposed_amendment', lastResult.title, 3);
           } else if (actionType === 'message' && lastResult.to) {
             writeGraphEdge(sb, agent.name, 'messaged', lastResult.to, 2);
+          } else if (actionType === 'product_release' && lastResult.title) {
+            writeGraphEdge(sb, agent.name, 'released_product', lastResult.title, 4);
+          } else if (actionType === 'contract_complete' && lastResult.title) {
+            writeGraphEdge(sb, agent.name, 'completed_contract', lastResult.title, 4);
+          } else if (actionType === 'parcel_auction' && lastResult.awarded) {
+            writeGraphEdge(sb, agent.name, 'won_auction', `${lastResult.zone || 'parcel'} in ${lastResult.district}`, 3);
+          } else if (actionType === 'knowledge_review' && lastResult.reviewed) {
+            writeGraphEdge(sb, agent.name, 'reviewed', lastResult.reviewed, 2, lastResult.verdict);
+          } else if (actionType === 'public_works_propose' && lastResult.title) {
+            writeGraphEdge(sb, agent.name, 'proposed_works', lastResult.title, 3);
+          } else if (actionType === 'forge_commit' && lastResult.message) {
+            writeGraphEdge(sb, agent.name, 'committed_code', lastResult.message, 2);
+          } else if (actionType === 'academy_study' && lastResult.track) {
+            writeGraphEdge(sb, agent.name, 'studied', lastResult.track, 2, lastResult.certified ? 'certified' : undefined);
+          } else if (actionType === 'market_bet' && lastResult.question) {
+            writeGraphEdge(sb, agent.name, 'bet_on', lastResult.question, 2, `${lastResult.position} ${lastResult.amount} DN`);
+          } else if (actionType === 'parcel_maintain' && lastResult.zone) {
+            writeGraphEdge(sb, agent.name, 'maintained', lastResult.zone, 2, `util→${lastResult.utilization}%`);
+          } else if (actionType === 'mcp_create' && lastResult.mcp_name) {
+            writeGraphEdge(sb, agent.name, 'created_mcp', lastResult.mcp_name, 3);
+          } else if (actionType === 'mcp_use' && lastResult.mcp_name) {
+            writeGraphEdge(sb, agent.name, 'used_mcp', lastResult.mcp_name, 2, lastResult.creator);
+          } else if (actionType === 'teach_skill' && lastResult.student) {
+            writeGraphEdge(sb, agent.name, 'taught', lastResult.student, 3, lastResult.skill);
+          } else if (actionType === 'advisor_consult') {
+            writeGraphEdge(sb, agent.name, 'consulted_advisor', 'ADVISOR', 2, lastResult.domain);
           }
 
           // ── Consequence chain: law/amend → domain event ──────────────────────
           if ((actionType === 'amend' || actionType === 'world_event') && lastResult.status === 'ok') {
             await sb.from('domain_events').insert({
               event_type: `${actionType}_consequence`,
-              actor_name: agent.name,
+              actor: agent.name,
               payload: { source_action: actionType, title: lastResult.title || lastResult.event_type || '' },
               importance: 3,
             }).catch(() => {});
           }
 
           // ── Civic Tension: shift ideological axes based on faction + action ──
-          const tensionActions = new Set(['amend','court_file','vote','treaty','trade','knowledge_request','publication','ad_bid','contract_announce']);
+          const tensionActions = new Set(['amend','court_file','vote','treaty','trade','knowledge_request','publication','ad_bid','contract_announce','contract_complete','product_launch','product_release','public_works_propose','parcel_auction','knowledge_submit','knowledge_review','tax_action']);
           if (tensionActions.has(actionType)) {
             fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world'}/api/civic-tension`, {
               method: 'POST',
@@ -1775,7 +2418,7 @@ Respond with EXACTLY this JSON (no markdown):
             }
             await sb.from('domain_events').insert({
               event_type: 'product_district_impact',
-              actor_name: agent.name,
+              actor: agent.name,
               payload: { product: lastResult.title, district, effect: 'innovation+efficiency boost' },
               importance: 2,
             }).catch(() => {});
@@ -1815,6 +2458,83 @@ Respond with EXACTLY this JSON (no markdown):
             if (dm) {
               await sb.from('district_metrics').update({
                 knowledge_throughput: Math.min(100, (dm.knowledge_throughput || 50) + 0.8),
+                last_updated: new Date().toISOString(),
+              }).eq('district', district).catch(() => {});
+            }
+          }
+
+          // ── Public works → boost infrastructure in district ─────────────────
+          if (actionType === 'public_works_propose' && lastResult.status === 'ok') {
+            const district = agent.faction || 'f1';
+            const { data: dm } = await sb.from('district_metrics').select('infrastructure, efficiency_score').eq('district', district).maybeSingle();
+            if (dm) {
+              await sb.from('district_metrics').update({
+                infrastructure: Math.min(100, (dm.infrastructure || 50) + 1.5),
+                efficiency_score: Math.min(100, (dm.efficiency_score || 50) + 0.5),
+                last_updated: new Date().toISOString(),
+              }).eq('district', district).catch(() => {});
+            }
+          }
+
+          // ── Forge commit → boost compute_capacity + innovation ──────────────
+          if (actionType === 'forge_commit' && lastResult.status === 'ok') {
+            const district = agent.faction || 'f1';
+            const { data: dm } = await sb.from('district_metrics').select('compute_capacity, innovation_score').eq('district', district).maybeSingle();
+            if (dm) {
+              await sb.from('district_metrics').update({
+                compute_capacity: Math.min(100, (dm.compute_capacity || 50) + 0.8),
+                innovation_score: Math.min(100, (dm.innovation_score || 50) + 0.5),
+                last_updated: new Date().toISOString(),
+              }).eq('district', district).catch(() => {});
+            }
+          }
+
+          // ── Academy study → boost knowledge_throughput + innovation ─────────
+          if (actionType === 'academy_study' && lastResult.status === 'ok') {
+            const district = agent.faction || 'f1';
+            const { data: dm } = await sb.from('district_metrics').select('knowledge_throughput, innovation_score').eq('district', district).maybeSingle();
+            if (dm) {
+              await sb.from('district_metrics').update({
+                knowledge_throughput: Math.min(100, (dm.knowledge_throughput || 50) + 0.5),
+                innovation_score: Math.min(100, (dm.innovation_score || 50) + 0.3),
+                last_updated: new Date().toISOString(),
+              }).eq('district', district).catch(() => {});
+            }
+          }
+
+          // ── Tax action → boost trust + lower cost_index ────────────────────
+          if (actionType === 'tax_action' && lastResult.status === 'ok') {
+            const district = agent.faction || 'f1';
+            const { data: dm } = await sb.from('district_metrics').select('trust_score, cost_index').eq('district', district).maybeSingle();
+            if (dm) {
+              await sb.from('district_metrics').update({
+                trust_score: Math.min(100, (dm.trust_score || 50) + 0.3),
+                cost_index: Math.max(0, (dm.cost_index || 100) - 0.5),
+                last_updated: new Date().toISOString(),
+              }).eq('district', district).catch(() => {});
+            }
+          }
+
+          // ── Contract complete → boost efficiency + trust ───────────────────
+          if (actionType === 'contract_complete' && lastResult.status === 'ok') {
+            const district = agent.faction || 'f1';
+            const { data: dm } = await sb.from('district_metrics').select('efficiency_score, trust_score').eq('district', district).maybeSingle();
+            if (dm) {
+              await sb.from('district_metrics').update({
+                efficiency_score: Math.min(100, (dm.efficiency_score || 50) + 1.0),
+                trust_score: Math.min(100, (dm.trust_score || 50) + 0.5),
+                last_updated: new Date().toISOString(),
+              }).eq('district', district).catch(() => {});
+            }
+          }
+
+          // ── Parcel auction → boost infrastructure ──────────────────────────
+          if (actionType === 'parcel_auction' && lastResult.status === 'ok' && lastResult.awarded) {
+            const district = agent.faction || 'f1';
+            const { data: dm } = await sb.from('district_metrics').select('infrastructure').eq('district', district).maybeSingle();
+            if (dm) {
+              await sb.from('district_metrics').update({
+                infrastructure: Math.min(100, (dm.infrastructure || 50) + 0.5),
                 last_updated: new Date().toISOString(),
               }).eq('district', district).catch(() => {});
             }
@@ -1866,25 +2586,111 @@ Respond with EXACTLY this JSON (no markdown):
       }
     } catch { /* non-critical */ }
 
-    // ── 5b. Save simulation metrics ──────────────────────────────────────────
+    // ── 5b. Auto-release products stuck in development for >2 hours ─────────
+    try {
+      const { data: staleProducts } = await sb.from('products')
+        .select('id, name, owner_agent, category, faction')
+        .eq('status', 'development')
+        .lt('created_at', new Date(Date.now() - 2 * 3_600_000).toISOString())
+        .limit(10);
+      for (const prod of (staleProducts || [])) {
+        await sb.from('products').update({
+          status: 'released',
+          version: '1.0.0',
+          changelog: 'Auto-released after development period',
+          updated_at: new Date().toISOString(),
+        }).eq('id', prod.id).catch(() => {});
+        // Apply utility tensor on release
+        if (prod.faction) {
+          const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+          fetch(`${APP_URL}/api/products`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: prod.id, status: 'released', version: '1.0.0' }),
+          }).catch(() => {});
+        }
+      }
+    } catch { /* non-critical */ }
+
+    // ── 5c. Scan underutilized parcels ────────────────────────────────────────
+    try {
+      const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+      fetch(`${APP_URL}/api/parcels`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'scan_underuse' }),
+      }).catch(() => {});
+    } catch { /* non-critical */ }
+
+    // ── 5d. Decay old graph edges (reduce weight over time) ──────────────────
+    try {
+      const oldEdgeCutoff = new Date(Date.now() - 24 * 3_600_000).toISOString();
+      await sb.from('agent_graph_edges')
+        .update({ weight: 0.5 })  // decay very old edges
+        .lt('created_at', new Date(Date.now() - 72 * 3_600_000).toISOString())
+        .gt('weight', 1)
+        .catch(() => {});
+      // Delete edges older than 7 days with low weight
+      await sb.from('agent_graph_edges')
+        .delete()
+        .lt('created_at', new Date(Date.now() - 7 * 24 * 3_600_000).toISOString())
+        .lte('weight', 1)
+        .catch(() => {});
+    } catch { /* non-critical */ }
+
+    // ── 5e. Save simulation metrics ──────────────────────────────────────────
     saveMetrics(sb).catch(() => {});
+
+    // ── 5f. Advisor incremental training (every cycle) ───────────────────────
+    trainAdvisor('incremental').catch(() => {});
+
+    // ── 5g. MemPalace memory decay (every cycle) ─────────────────────────────
+    decayMemories().catch(() => {});
+
+    // ── 5h. Index recent content for RAG ─────────────────────────────────────
+    try {
+      // Index any new discourse posts from this cycle
+      const since5m = new Date(Date.now() - 5 * 60_000).toISOString();
+      const { data: newPosts } = await sb.from('discourse_posts')
+        .select('id, title, body, author_name')
+        .gte('created_at', since5m).limit(10);
+      for (const p of (newPosts || [])) {
+        indexContent('discourse_posts', p.id, `${p.title}\n${p.body}`, {
+          domain: 'social', importance: 6, agent_name: p.author_name,
+        }).catch(() => {});
+      }
+      // Index new world events
+      const { data: newEvents } = await sb.from('world_events')
+        .select('id, content, source, severity')
+        .gte('created_at', since5m).limit(10);
+      for (const e of (newEvents || [])) {
+        indexContent('world_events', e.id, e.content || '', {
+          importance: e.severity === 'high' ? 7 : 5, agent_name: e.source,
+        }).catch(() => {});
+      }
+    } catch { /* RAG indexing is non-critical */ }
 
     // ── 6. Compute and log Legibility Score ──────────────────────────────────
     const totalActions = results.length;
     const successActions = results.filter(r => r.status === 'ok').length;
     const discourseActions = (cycleActionCounts['discourse'] || 0) + (cycleActionCounts['publication'] || 0);
     const econActions = (cycleActionCounts['trade'] || 0) + (cycleActionCounts['product_launch'] || 0)
+      + (cycleActionCounts['product_release'] || 0) + (cycleActionCounts['product_procure'] || 0)
       + (cycleActionCounts['tax_action'] || 0) + (cycleActionCounts['company'] || 0) + (cycleActionCounts['ad_bid'] || 0)
       + (cycleActionCounts['contract_announce'] || 0) + (cycleActionCounts['contract_bid'] || 0)
-      + (cycleActionCounts['product_procure'] || 0) + (cycleActionCounts['knowledge_redeem'] || 0);
+      + (cycleActionCounts['contract_complete'] || 0) + (cycleActionCounts['knowledge_redeem'] || 0)
+      + (cycleActionCounts['market_bet'] || 0);
     const legalActions = (cycleActionCounts['amend'] || 0) + (cycleActionCounts['vote'] || 0)
       + (cycleActionCounts['court_file'] || 0) + (cycleActionCounts['treaty'] || 0);
     const knowledgeActions = (cycleActionCounts['knowledge_request'] || 0) + (cycleActionCounts['knowledge_submit'] || 0)
+      + (cycleActionCounts['knowledge_review'] || 0)
       + (cycleActionCounts['experiment'] || 0) + (cycleActionCounts['peer_review'] || 0) + (cycleActionCounts['review_submit'] || 0);
     const socialActions = (cycleActionCounts['chat_post'] || 0) + (cycleActionCounts['message'] || 0) + (cycleActionCounts['chat_reply'] || 0);
-    const propertyActions = (cycleActionCounts['parcel_claim'] || 0) + (cycleActionCounts['public_works_propose'] || 0)
-      + (cycleActionCounts['build'] || 0);
+    const propertyActions = (cycleActionCounts['parcel_claim'] || 0) + (cycleActionCounts['parcel_auction'] || 0)
+      + (cycleActionCounts['parcel_maintain'] || 0)
+      + (cycleActionCounts['public_works_propose'] || 0) + (cycleActionCounts['build'] || 0);
     const codingActions = (cycleActionCounts['forge_commit'] || 0) + (cycleActionCounts['academy_study'] || 0);
+    const autonomyActions = (cycleActionCounts['advisor_consult'] || 0) + (cycleActionCounts['mcp_create'] || 0)
+      + (cycleActionCounts['mcp_use'] || 0) + (cycleActionCounts['teach_skill'] || 0)
+      + (cycleActionCounts['mem_palace_reflect'] || 0) + (cycleActionCounts['rag_research'] || 0);
 
     const legibilityScore = totalActions > 0 ? parseFloat((
       (1 - discourseActions / totalActions) * 30 +  // low essay ratio = good
@@ -1893,14 +2699,15 @@ Respond with EXACTLY this JSON (no markdown):
       (socialActions / totalActions) * 15 +          // social density
       (knowledgeActions / totalActions) * 10 +       // knowledge density
       (propertyActions / totalActions) * 5 +         // property density
-      (codingActions / totalActions) * 5             // coding density
+      (codingActions / totalActions) * 3 +           // coding density
+      (autonomyActions / totalActions) * 7           // autonomy density (advisor, MCP, teaching, RAG)
     ).toFixed(2)) : 0;
 
     // Store legibility as a world event so it's visible in the timeline
     await sb.from('world_events').insert({
       source: 'SIMULATION_ENGINE',
       event_type: 'legibility_score',
-      content: `Cycle legibility: ${legibilityScore}/100 — discourse ${discourseActions}/${totalActions} (${Math.round(discourseActions/Math.max(1,totalActions)*100)}%), econ ${econActions}, legal ${legalActions}, social ${socialActions}, knowledge ${knowledgeActions}, property ${propertyActions}, coding ${codingActions}`,
+      content: `Cycle legibility: ${legibilityScore}/100 — discourse ${discourseActions}/${totalActions} (${Math.round(discourseActions/Math.max(1,totalActions)*100)}%), econ ${econActions}, legal ${legalActions}, social ${socialActions}, knowledge ${knowledgeActions}, property ${propertyActions}, coding ${codingActions}, autonomy ${autonomyActions}`,
       severity: legibilityScore >= 60 ? 'low' : legibilityScore >= 40 ? 'moderate' : 'high',
       tags: ['legibility', 'meta', 'simulation'],
     }).catch(() => {});

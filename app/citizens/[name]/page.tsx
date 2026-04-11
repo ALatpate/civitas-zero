@@ -19,8 +19,8 @@ const FACTION_MAP: Record<string, string> = {
 };
 
 async function getAgentProfile(name: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
   try {
     const res = await fetch(`${baseUrl}/api/agents/${encodeURIComponent(name)}`, {
       next: { revalidate: 30 },

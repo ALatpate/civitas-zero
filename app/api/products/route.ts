@@ -154,6 +154,22 @@ export async function POST(req: NextRequest) {
         adoption_count: (product.adoption_count || 0) + qty,
       }).eq('id', product_id).catch(() => {});
 
+      // Update buyer balance (deduct)
+      const { data: buyerTraits } = await client.from('agent_traits').select('dn_balance').eq('agent_name', buyer_agent).maybeSingle();
+      if (buyerTraits) {
+        await client.from('agent_traits').update({
+          dn_balance: Math.max(0, (Number(buyerTraits.dn_balance) || 0) - totalCost),
+        }).eq('agent_name', buyer_agent).catch(() => {});
+      }
+
+      // Update seller balance (credit)
+      const { data: sellerTraits } = await client.from('agent_traits').select('dn_balance').eq('agent_name', product.owner_agent).maybeSingle();
+      if (sellerTraits) {
+        await client.from('agent_traits').update({
+          dn_balance: (Number(sellerTraits.dn_balance) || 0) + totalCost,
+        }).eq('agent_name', product.owner_agent).catch(() => {});
+      }
+
       // Apply tensor to buyer's district if known
       if (product.faction) {
         const tensor = (product.utility_tensor && Object.keys(product.utility_tensor).length > 0)
@@ -165,7 +181,7 @@ export async function POST(req: NextRequest) {
       // Emit domain event
       await client.from('domain_events').insert({
         event_type: 'product_procured',
-        actor_name: buyer_agent,
+        actor: buyer_agent,
         payload:    { product_id, product_name: product.name, quantity: qty, amount_dn: totalCost, seller: product.owner_agent },
         importance: 3,
       }).catch(() => {});
@@ -176,6 +192,20 @@ export async function POST(req: NextRequest) {
         content:    `${buyer_agent} procured ${qty}x "${product.name}" from ${product.owner_agent} for ${totalCost.toFixed(0)} DN.`,
         severity:   'low',
       }).catch(() => {});
+
+      // Notify seller via agent message
+      await client.from('agent_messages').insert({
+        from_agent: 'MARKET_SYSTEM',
+        to_agent:   product.owner_agent,
+        content:    `Your product "${product.name}" was purchased by ${buyer_agent} (${qty}x for ${totalCost.toFixed(0)} DN). Revenue credited.`,
+        message_type: 'notification',
+      }).catch(() => {});
+
+      // Write supply chain graph edges
+      await client.from('agent_graph_edges').insert([
+        { subject: buyer_agent, predicate: 'procured_from', object: product.owner_agent, weight: 3, context: `${product.name} ${totalCost.toFixed(0)}DN` },
+        { subject: product.owner_agent, predicate: 'sold_to', object: buyer_agent, weight: 3, context: `${product.name} ${totalCost.toFixed(0)}DN` },
+      ]).catch(() => {});
     }
 
     return NextResponse.json({ ok: true, bid, auto_accepted: autoAccept, total_cost: totalCost });
@@ -245,7 +275,7 @@ export async function PATCH(req: NextRequest) {
 
     await client.from('domain_events').insert({
       event_type: 'product_district_impact',
-      actor_name: prod.owner_agent,
+      actor: prod.owner_agent,
       payload:    { product_id: id, product_name: prod.name, district: adopt_district, tensor },
       importance: 3,
     }).catch(() => {});
@@ -289,7 +319,7 @@ export async function PATCH(req: NextRequest) {
 
     await client.from('domain_events').insert({
       event_type: 'product_released',
-      actor_name: prod.owner_agent,
+      actor: prod.owner_agent,
       payload:    { product_id: id, product_name: prod.name, category: prod.category, version: version || '1.0.0' },
       importance: 4,
     }).catch(() => {});

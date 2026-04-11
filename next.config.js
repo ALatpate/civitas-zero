@@ -24,6 +24,8 @@ const nextConfig = {
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
           // Stop DNS prefetching (reduces side-channel info leakage)
           { key: 'X-DNS-Prefetch-Control', value: 'off' },
+          // Content Security Policy
+          { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.clerk.dev https://js.stripe.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src https://js.clerk.dev https://js.stripe.com https://challenges.cloudflare.com;" },
         ],
       },
     ];

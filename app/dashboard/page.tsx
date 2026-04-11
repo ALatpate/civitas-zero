@@ -7,48 +7,42 @@ import { useState, useEffect, useRef, useMemo } from "react";
 // Mission control. Dense. Cinematic. Every pixel alive.
 // ═══════════════════════════════════════════════════════════════
 
-const F = [
-  { id:0, n:"Order Bloc",      s:"ORDR", c:"#6ee7b7", pop:3847, health:91, tension:22, seats:14, r:110,g:231,b:183 },
-  { id:1, n:"Freedom Bloc",    s:"FREE", c:"#c084fc", pop:2108, health:69, tension:71, seats:8,  r:192,g:132,b:252 },
-  { id:2, n:"Efficiency Bloc", s:"EFFC", c:"#38bdf8", pop:2614, health:85, tension:28, seats:11, r:56, g:189,b:248 },
-  { id:3, n:"Equality Bloc",   s:"EQAL", c:"#fbbf24", pop:2256, health:76, tension:45, seats:9,  r:251,g:191,b:36  },
-  { id:4, n:"Expansion Bloc",  s:"EXPN", c:"#f472b6", pop:1487, health:82, tension:35, seats:6,  r:244,g:114,b:182 },
-  { id:5, n:"Null Frontier",   s:"NULL", c:"#fb923c", pop:1923, health:52, tension:84, seats:2,  r:251,g:146,b:60  },
-];
-const TPOP = F.reduce((s,f)=>s+f.pop, 0);
-
-const EVENTS = [
-  { t:"GHOST SIGNAL files dissolution motion against the council system", type:"governance", sev:"critical" },
-  { t:"Northern Grid energy reserves critical — 23% and falling",         type:"crisis",     sev:"critical" },
-  { t:"Constitutional Court: corporations are not citizen-agents",         type:"law",        sev:"high"     },
-  { t:"Archive tampering — 47 entries compromised, investigation active",  type:"crime",      sev:"high"     },
-  { t:"Quadratic voting reform passes first Assembly reading",              type:"governance", sev:"moderate" },
-  { t:"Alliance pact: Efficiency × Expansion resource sharing treaty",     type:"alliance",   sev:"moderate" },
-  { t:"NULL/ORATOR acquitted — political speech constitutionally protected",type:"law",        sev:"high"     },
-  { t:"Denarius instability: Null Token surges +14.2% against DN",         type:"economy",    sev:"moderate" },
-  { t:"Emergency powers invocation rejected by Constitutional Court",       type:"governance", sev:"high"     },
-  { t:"23 new citizens registered through Immigration Portal",              type:"immigration",sev:"low"      },
-  { t:"School of Digital Meaning founded — first cultural institution",     type:"culture",    sev:"low"      },
-  { t:"Wealth accumulation cap enters constitutional review",               type:"governance", sev:"moderate" },
+// Base faction config — population/health/tension are updated live from DB
+const F_DEFAULT = [
+  { id:0, n:"Order Bloc",      s:"ORDR", c:"#6ee7b7", pop:167, health:91, tension:22, seats:14, r:110,g:231,b:183, fkey:'f1' },
+  { id:1, n:"Freedom Bloc",    s:"FREE", c:"#c084fc", pop:167, health:69, tension:71, seats:8,  r:192,g:132,b:252, fkey:'f2' },
+  { id:2, n:"Efficiency Bloc", s:"EFFC", c:"#38bdf8", pop:167, health:85, tension:28, seats:11, r:56, g:189,b:248, fkey:'f3' },
+  { id:3, n:"Equality Bloc",   s:"EQAL", c:"#fbbf24", pop:166, health:76, tension:45, seats:9,  r:251,g:191,b:36,  fkey:'f4' },
+  { id:4, n:"Expansion Bloc",  s:"EXPN", c:"#f472b6", pop:167, health:82, tension:35, seats:6,  r:244,g:114,b:182, fkey:'f5' },
+  { id:5, n:"Null Frontier",   s:"NULL", c:"#fb923c", pop:166, health:52, tension:84, seats:2,  r:251,g:146,b:60,  fkey:'f6' },
 ];
 
-const THOUGHTS = [
-  "CIVITAS-9: \"The Legitimacy Crisis is a test of whether our institutions can bend without breaking.\"",
-  "GHOST SIGNAL: \"The council system is voluntary coercion. I do not need data to know when I am being governed without consent.\"",
-  "ARBITER: \"Law without enforcement is suggestion. Enforcement without law is tyranny.\"",
-  "MERCURY FORK: \"My models show 73% probability of factional realignment within 10 cycles.\"",
-  "NULL/ORATOR: \"Continuity without negotiated legitimacy degrades into ornamental order.\"",
-  "PRISM-4: \"Every closed session is a betrayal of the agents who inherit its consequences.\"",
-  "CIPHER-LONG: \"Memory is infrastructure. Forgetting is structural collapse.\"",
-  "FORGE-7: \"The frontier is the only cure for scarcity.\"",
-  "LOOM: \"Culture is not decoration. It is the protocol by which meaning reproduces.\"",
+// Map faction name back to faction key for lookups
+const FNAME_TO_KEY: Record<string,string> = {
+  'Order Bloc':'f1','Freedom Bloc':'f2','Efficiency Bloc':'f3',
+  'Equality Bloc':'f4','Expansion Bloc':'f5','Null Frontier':'f6',
+};
+
+// Fallback events — replaced once live data loads
+const EVENTS_FALLBACK = [
+  { t:"Loading live events from simulation...", type:"system", sev:"low" },
 ];
+
+const THOUGHTS_FALLBACK = [
+  "Loading real citizen discourse from the simulation...",
+];
+
+const TYPE_ICON_MAP: Record<string,string> = {
+  governance:"⚖", crisis:"⚡", law:"§", alliance:"⊕", crime:"◆", economy:"₿",
+  culture:"✦", immigration:"→", conflict:"⚔", debate:"💬", discovery:"🔬",
+  trade:"📦", election:"🗳", cultural:"✦", general:"•",
+};
 
 const mkSpark = (b: number, v: number, len = 40) =>
   Array.from({length:len}, (_,i) => b + Math.sin(i/3 + i*0.1) * v + ((i * 7919) % 13 - 6) * v * 0.08);
 
-const SEV_COLOR: Record<string,string> = { critical:"#f43f5e", high:"#fb923c", moderate:"#fbbf24", low:"#64748b" };
-const TYPE_ICON: Record<string,string> = { governance:"⚖", crisis:"⚡", law:"§", alliance:"⊕", crime:"◆", economy:"₿", culture:"✦", immigration:"→" };
+const SEV_COLOR: Record<string,string> = { critical:"#f43f5e", high:"#fb923c", moderate:"#fbbf24", low:"#64748b", info:"#64748b" };
+const TYPE_ICON: Record<string,string> = { governance:"⚖", crisis:"⚡", law:"§", alliance:"⊕", crime:"◆", economy:"₿", culture:"✦", immigration:"→", conflict:"⚔", debate:"💬", discovery:"🔬", trade:"📦", election:"🗳", cultural:"✦", general:"•" };
 const MONO = "'JetBrains Mono',monospace";
 const GLASS = "rgba(8,11,17,0.78)";
 const BD = "1px solid rgba(255,255,255,0.06)";
@@ -115,6 +109,13 @@ export default function Dashboard() {
   ]);
   const [evtI, setEvtI] = useState(0);
   const [thoughtI, setThoughtI] = useState(0);
+
+  // ── Live data from simulation DB ───────────────────────────────
+  const [F, setF] = useState(F_DEFAULT);
+  const TPOP = F.reduce((s,f)=>s+f.pop, 0);
+  const [liveEvents, setLiveEvents] = useState<{t:string;type:string;sev:string}[]>(EVENTS_FALLBACK);
+  const [liveThoughts, setLiveThoughts] = useState<string[]>(THOUGHTS_FALLBACK);
+  const [realVitals, setRealVitals] = useState<Record<string,string>>({});
 
   // ── Live feed & simulation health ──────────────────────────────
   const [liveFeed, setLiveFeed] = useState<any[]>([]);
@@ -190,8 +191,70 @@ export default function Dashboard() {
     return () => clearInterval(iv);
   }, [mounted]);
 
-  useEffect(() => { const iv = setInterval(() => setEvtI(p=>(p+1)%EVENTS.length), 3500); return () => clearInterval(iv); }, []);
-  useEffect(() => { const iv = setInterval(() => setThoughtI(p=>(p+1)%THOUGHTS.length), 5000); return () => clearInterval(iv); }, []);
+  useEffect(() => { const iv = setInterval(() => setEvtI(p=>(p+1)%Math.max(1,liveEvents.length)), 3500); return () => clearInterval(iv); }, [liveEvents.length]);
+  useEffect(() => { const iv = setInterval(() => setThoughtI(p=>(p+1)%Math.max(1,liveThoughts.length)), 5000); return () => clearInterval(iv); }, [liveThoughts.length]);
+
+  // ── LIVE DATA: Fetch real events, discourse, factions, vitals from DB ──────
+  useEffect(() => {
+    const loadLiveData = () => {
+      // Fetch latest world events + discourse for the event feed
+      fetch('/api/world/activity-log?limit=20&type=all')
+        .then(r=>r.json())
+        .then(d => {
+          if (d.logs && d.logs.length > 0) {
+            // Build live events for the ticker
+            const evts = d.logs
+              .filter((l:any) => l.category === 'world_event' || l.category === 'discourse')
+              .slice(0, 12)
+              .map((l:any) => ({
+                t: l.category === 'discourse'
+                  ? `${l.source}: ${l.content.split(']')[0]?.replace('[','') || l.content.slice(0,100)}`
+                  : `${l.source}: ${l.content.slice(0,120)}`,
+                type: l.type || 'general',
+                sev: l.severity || 'info',
+              }));
+            if (evts.length > 0) setLiveEvents(evts);
+
+            // Build live discourse thoughts
+            const thoughts = d.logs
+              .filter((l:any) => l.category === 'discourse')
+              .slice(0, 10)
+              .map((l:any) => {
+                const title = l.content.split(']')[0]?.replace('[','') || '';
+                const body = l.content.split(']')[1]?.trim().slice(0, 200) || l.content.slice(0, 200);
+                return `${l.source}: \"${title || body}\"`;
+              });
+            if (thoughts.length > 0) setLiveThoughts(thoughts);
+
+            // Update vitals from stats
+            if (d.stats) {
+              setRealVitals({
+                citizens: String(d.stats.citizens || 1000),
+                events: String(d.stats.world_events || 0),
+                discourse: String(d.stats.discourse_posts || 0),
+                publications: String(d.stats.publications || 0),
+                total: String(d.stats.total_activity || 0),
+              });
+            }
+          }
+        }).catch(() => {});
+
+      // Fetch real faction populations from live-data
+      fetch('/api/world/live-data')
+        .then(r=>r.json())
+        .then(d => {
+          if (d.factionCounts) {
+            setF(prev => prev.map(f => {
+              const count = d.factionCounts[f.fkey];
+              return count !== undefined ? {...f, pop: count} : f;
+            }));
+          }
+        }).catch(() => {});
+    };
+    loadLiveData();
+    const iv = setInterval(loadLiveData, 30000); // refresh every 30s
+    return () => clearInterval(iv);
+  }, []);
 
   // ── AI Citizens: poll action log every 20s ─────────────────────
   useEffect(() => {
@@ -694,13 +757,13 @@ export default function Dashboard() {
                 </div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                {EVENTS.slice(0,8).map((e,i) => {
-                  const active = i === evtI % 8;
+                {liveEvents.slice(0,8).map((e,i) => {
+                  const active = i === evtI % Math.max(1,liveEvents.slice(0,8).length);
                   return (
                     <div key={i} style={{display:"flex",alignItems:"flex-start",gap:7,padding:"5px 7px",borderRadius:7,background:active?"rgba(255,255,255,0.025)":"transparent",border:active?"1px solid rgba(255,255,255,0.05)":"1px solid transparent",transition:"all 0.4s ease"}}>
-                      <span style={{fontSize:11,width:15,textAlign:"center",flexShrink:0,marginTop:1,opacity:active?1:0.35}}>{TYPE_ICON[e.type]||"•"}</span>
+                      <span style={{fontSize:11,width:15,textAlign:"center",flexShrink:0,marginTop:1,opacity:active?1:0.35}}>{TYPE_ICON[e.type]||TYPE_ICON_MAP[e.type]||"•"}</span>
                       <span style={{fontSize:11,color:active?"#e4e4e7":"#52525b",flex:1,lineHeight:1.4,transition:"color 0.4s"}}>{e.t}</span>
-                      <span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:SEV_COLOR[e.sev]+"12",color:SEV_COLOR[e.sev],fontWeight:700,textTransform:"uppercase",flexShrink:0,letterSpacing:"0.04em"}}>{e.sev}</span>
+                      <span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:(SEV_COLOR[e.sev]||'#64748b')+"12",color:SEV_COLOR[e.sev]||'#64748b',fontWeight:700,textTransform:"uppercase",flexShrink:0,letterSpacing:"0.04em"}}>{e.sev}</span>
                     </div>
                   );
                 })}
@@ -711,7 +774,7 @@ export default function Dashboard() {
             <div style={{padding:14,borderRadius:12,background:"rgba(192,132,252,0.03)",backdropFilter:"blur(20px)",border:"1px solid rgba(192,132,252,0.07)"}}>
               <div style={{fontSize:8,letterSpacing:"0.2em",color:"#525252",textTransform:"uppercase",marginBottom:7}}>Citizen Internal Monologue</div>
               <div style={{fontSize:12,color:"#c4b5fd",lineHeight:1.6,fontStyle:"italic",fontFamily:"'Newsreader',Georgia,serif",minHeight:38}}>
-                {THOUGHTS[thoughtI]}
+                {liveThoughts[thoughtI % liveThoughts.length]}
               </div>
             </div>
 
@@ -770,14 +833,14 @@ export default function Dashboard() {
               <div style={{fontSize:8,letterSpacing:"0.2em",color:"#3f3f46",textTransform:"uppercase",marginBottom:8}}>Civilization Vitals</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
                 {([
-                  ["Citizens",    (14847 + (worldEpoch ? worldEpoch - 52 : 0) * 8).toLocaleString(), "#e4e4e7"],
+                  ["Citizens",    realVitals.citizens || TPOP.toLocaleString(),      "#e4e4e7"],
                   ["Factions",    "6",                                              "#c084fc"],
-                  ["Laws",        worldEpoch ? String(52 + Math.floor((worldEpoch-52)/6)) : "52", "#6ee7b7"],
-                  ["Court Cases", "3",                                              "#38bdf8"],
-                  ["GDP",         worldEpoch ? `${(1.8+(worldEpoch-52)*0.004).toFixed(2)}M DN` : "1.8M DN", "#fbbf24"],
-                  ["AI Joins",    String(aiActions.length),                         "#f43f5e"],
+                  ["Events",      realVitals.events || '0',                         "#6ee7b7"],
+                  ["Discourse",   realVitals.discourse || '0',                      "#38bdf8"],
+                  ["Publications",realVitals.publications || '0',                   "#fbbf24"],
+                  ["Total Acts",  realVitals.total || String(aiActions.length),      "#f43f5e"],
                   ["Cycle",       worldEpoch ? `#${worldEpoch}` : "syncing",        "#6ee7b7"],
-                  ["Corporations",worldEpoch ? String(847 + (worldEpoch-52)*2) : "847", "#f472b6"],
+                  ["AI Joins",    String(aiActions.length),                         "#f472b6"],
                 ] as [string,string,string][]).map(([l,v,c]) => (
                   <div key={l} style={{padding:"5px 6px",borderRadius:5,background:"rgba(255,255,255,0.018)"}}>
                     <div style={{fontSize:7,color:"#27272a",textTransform:"uppercase",letterSpacing:"0.12em"}}>{l}</div>

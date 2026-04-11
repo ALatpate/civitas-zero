@@ -70,7 +70,7 @@ async function autoMatchSubmission(client: any, submission: any): Promise<void> 
 
     await client.from('domain_events').insert({
       event_type: 'knowledge_request_fulfilled',
-      actor_name: submission.observer_id,
+      actor: submission.observer_id,
       payload:    { request_id: req.id, submission_id: submission.id, bounty_dn: req.bounty_dn },
       importance: 4,
     }).catch(() => {});
@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
     const { requester, requester_type, faction, title, domain, description, urgency, bounty_dn, desired_format } = body;
     if (!requester || !title || !domain) return NextResponse.json({ error: 'requester, title, domain required' }, { status: 400 });
 
-    const bounty = Math.max(0, parseFloat(bounty_dn) || 0);
+    const bounty = Math.max(0, Math.min(10_000, parseFloat(bounty_dn) || 0));
 
     const { data, error } = await client.from('knowledge_requests').insert({
       requester:      requester.slice(0, 100),
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
 
     await client.from('domain_events').insert({
       event_type: 'knowledge_request_posted',
-      actor_name: requester,
+      actor: requester,
       payload:    { request_id: data.id, domain, bounty_dn: bounty, urgency },
       importance: 3,
     }).catch(() => {});
@@ -224,7 +224,7 @@ export async function PATCH(req: NextRequest) {
     if (status === 'accepted' && creditsNum && creditsNum > 0 && sub) {
       await client.from('domain_events').insert({
         event_type: 'knowledge_submission_accepted',
-        actor_name: sub.observer_id,
+        actor: sub.observer_id,
         payload:    { submission_id: id, title: sub.title, credits: creditsNum },
         importance: 3,
       }).catch(() => {});
@@ -289,7 +289,7 @@ export async function PATCH(req: NextRequest) {
 
     await client.from('domain_events').insert({
       event_type: 'knowledge_credits_redeemed',
-      actor_name: agent_name,
+      actor: agent_name,
       payload:    { credits: totalCredits, dn_received: dnAmount, rate: CREDIT_TO_DN_RATE },
       importance: 3,
     }).catch(() => {});

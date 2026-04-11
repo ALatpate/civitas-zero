@@ -29,16 +29,16 @@ export async function GET(req: NextRequest) {
   }
 
   if (type === 'commits') {
-    let q = sb.from('forge_commits').select('*').order('committed_at', { ascending: false }).limit(limit);
+    let q = sb.from('forge_commits').select('*').order('created_at', { ascending: false }).limit(limit);
     if (repo) q = q.eq('repo_id', repo);
-    if (agent) q = q.eq('author_name', agent);
+    if (agent) q = q.eq('author', agent);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ commits: data, count: data?.length });
   }
 
   if (type === 'mrs') {
-    let q = sb.from('forge_merge_requests').select('*, forge_repos(name, owner_agent)').order('opened_at', { ascending: false }).limit(limit);
+    let q = sb.from('forge_merge_requests').select('*, forge_repos(name, owner_agent)').order('created_at', { ascending: false }).limit(limit);
     if (repo) q = q.eq('repo_id', repo);
     if (status) q = q.eq('status', status);
     const { data, error } = await q;
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (type === 'issues') {
-    let q = sb.from('forge_issues').select('*').order('opened_at', { ascending: false }).limit(limit);
+    let q = sb.from('forge_issues').select('*').order('created_at', { ascending: false }).limit(limit);
     if (repo) q = q.eq('repo_id', repo);
     if (status) q = q.eq('status', status);
     const { data, error } = await q;
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (type === 'deployments') {
-    let q = sb.from('forge_deployments').select('*, forge_repos(name)').order('deployed_at', { ascending: false }).limit(limit);
+    let q = sb.from('forge_deployments').select('*, forge_repos(name)').order('created_at', { ascending: false }).limit(limit);
     if (repo) q = q.eq('repo_id', repo);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
 
     await sb.from('domain_events').insert({
       event_type: 'forge_repo_created',
-      actor_name: owner_agent,
+      actor: owner_agent,
       payload: { repo_id: data.id, name },
       importance: 3,
     }).catch(() => {});
@@ -125,11 +125,11 @@ export async function POST(req: NextRequest) {
     const commitSha = sha || Math.random().toString(36).slice(2, 10);
     const { data, error } = await sb.from('forge_commits').insert({
       repo_id,
-      author_name,
+      author: author_name,
       message,
       sha: commitSha,
       files_changed: files_changed || 1,
-      insertions: insertions || Math.floor(Math.random() * 80) + 5,
+      additions: insertions || Math.floor(Math.random() * 80) + 5,
       deletions: deletions || Math.floor(Math.random() * 20),
     }).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
 
     await sb.from('domain_events').insert({
       event_type: 'forge_commit_pushed',
-      actor_name: author_name,
+      actor: author_name,
       payload: { repo_id, sha: commitSha, message: message.slice(0, 100) },
       importance: 2,
     }).catch(() => {});
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await sb.from('forge_merge_requests').insert({
       repo_id,
-      author_name,
+      author: author_name,
       title,
       description: description || null,
       source_branch: source_branch || 'feature/new',
@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
 
     await sb.from('domain_events').insert({
       event_type: 'forge_mr_opened',
-      actor_name: author_name,
+      actor: author_name,
       payload: { repo_id, mr_id: data.id, title },
       importance: 3,
     }).catch(() => {});
@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
     const newStatus = approved ? 'merged' : 'rejected';
     const { data, error } = await sb.from('forge_merge_requests').update({
       status: newStatus,
-      reviewer_name: reviewer_name || 'system',
+      merged_by: reviewer_name || 'system',
       merged_at: approved ? new Date().toISOString() : null,
     }).eq('id', mr_id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -199,17 +199,17 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await sb.from('forge_deployments').insert({
       repo_id,
-      deployed_by,
+      proposed_by: deployed_by,
       environment: environment || 'production',
       version: version || '1.0.0',
-      status: deployStatus || 'success',
-      notes: notes || null,
+      status: deployStatus || 'deployed',
+      deployment_log: notes || null,
     }).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     await sb.from('domain_events').insert({
       event_type: 'forge_deployed',
-      actor_name: deployed_by,
+      actor: deployed_by,
       payload: { repo_id, environment: environment || 'production', version: version || '1.0.0' },
       importance: 4,
     }).catch(() => {});
@@ -223,10 +223,10 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await sb.from('forge_issues').insert({
       repo_id,
-      reporter_name,
+      author: reporter_name,
       title,
-      description: description || null,
-      label: label || 'bug',
+      body: description || null,
+      labels: label ? [label] : ['bug'],
       priority: priority || 'normal',
       status: 'open',
     }).select().single();
@@ -240,7 +240,7 @@ export async function POST(req: NextRequest) {
   if (action === 'close_issue') {
     const { issue_id, resolution } = body;
     if (!issue_id) return NextResponse.json({ error: 'issue_id required' }, { status: 400 });
-    const { data, error } = await sb.from('forge_issues').update({ status: 'closed', resolution: resolution || null }).eq('id', issue_id).select().single();
+    const { data, error } = await sb.from('forge_issues').update({ status: 'closed' }).eq('id', issue_id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, issue: data });
   }
