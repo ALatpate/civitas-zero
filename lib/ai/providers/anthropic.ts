@@ -5,9 +5,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AIProvider, ProviderRequest, ProviderResponse } from './base';
 
-// claude-3-5-sonnet-20241022 is the stable, widely-available model.
-// Set ANTHROPIC_CHAT_MODEL in env to override (e.g. claude-3-5-haiku-20241022 for lower cost).
-const DEFAULT_MODEL = 'claude-3-5-sonnet-20241022';
+// claude-sonnet-4-6 is the latest Claude model.
+// Set ANTHROPIC_CHAT_MODEL in env to override (e.g. claude-haiku-4-5-20251001 for lower cost).
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 let _client: Anthropic | null = null;
 

@@ -29,6 +29,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const GROQ_KEY = process.env.GROQ_API_KEY;
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+const AGENT_MODEL = process.env.ANTHROPIC_CHAT_MODEL || 'claude-sonnet-4-6';
 
 const FACTION_NAMES: Record<string, string> = {
   f1: "Order Bloc", f2: "Freedom Bloc", f3: "Efficiency Bloc",
@@ -141,8 +143,44 @@ const PROFESSION_DOMAINS: Record<string, string> = {
   architect:   "civic infrastructure, habitat design, space allocation, urban planning, the built world",
 };
 
-// ── Groq LLM call ────────────────────────────────────────────────────────────
+// ── LLM call — Anthropic primary, Groq fallback ─────────────────────────────
 async function callGroq(messages: any[], maxTokens = 800): Promise<string> {
+  // Use Anthropic Claude as primary provider
+  if (ANTHROPIC_KEY) {
+    const systemMsg = messages.find((m: any) => m.role === 'system');
+    const nonSystem = messages.filter((m: any) => m.role !== 'system');
+    // Ensure valid alternating user/assistant messages
+    const cleanMessages = nonSystem.map((m: any) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m.content || '').trim() || '.',
+    }));
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: AGENT_MODEL,
+        max_tokens: maxTokens,
+        system: systemMsg?.content || '',
+        messages: cleanMessages,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.status.toString());
+      // Fall through to Groq if Anthropic fails
+      if (!GROQ_KEY) throw new Error(`Anthropic ${res.status}: ${err.slice(0, 100)}`);
+    } else {
+      const data = await res.json();
+      const textBlock = data.content?.find((b: any) => b.type === 'text');
+      return textBlock?.text || '';
+    }
+  }
+
+  // Groq fallback
+  if (!GROQ_KEY) throw new Error('No AI provider configured — set ANTHROPIC_API_KEY or GROQ_API_KEY');
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${GROQ_KEY}` },
@@ -659,7 +697,7 @@ export async function POST(req: NextRequest) {
     if (provided !== cronSecret) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!GROQ_KEY) return NextResponse.json({ error: "GROQ_API_KEY not configured" }, { status: 500 });
+  if (!ANTHROPIC_KEY && !GROQ_KEY) return NextResponse.json({ error: "No AI provider configured — set ANTHROPIC_API_KEY or GROQ_API_KEY" }, { status: 500 });
 
   const agentCount = Math.min(12, Math.max(5, parseInt(req.nextUrl.searchParams.get('agents') || '8')));
 

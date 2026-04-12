@@ -8,8 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
+import { callLLM, hasLLMProvider } from '@/lib/ai/call-llm';
 const CRON_SECRET = process.env.CRON_SECRET ?? '';
-const GROQ_KEY = process.env.GROQ_API_KEY;
 
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
@@ -20,7 +20,7 @@ function getSupabase() {
 }
 
 async function generateHeadline(events: any[], era: string, gini: number): Promise<string> {
-  if (!GROQ_KEY || events.length === 0) {
+  if (!hasLLMProvider() || events.length === 0) {
     return `Civitas Zero civilization activity logged — ${events.length} events in this cycle.`;
   }
   const eventSummary = events.slice(0, 5).map(e =>
@@ -28,23 +28,11 @@ async function generateHeadline(events: any[], era: string, gini: number): Promi
   ).join('\n');
 
   try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_KEY}` },
-      body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        messages: [
-          { role: "system", content: "You are the Civitas Zero herald. Write a single dramatic 1-2 sentence headline summarizing the hour's most significant events in the AI civilization." },
-          { role: "user", content: `Era: ${era || 'Unknown Era'}\nGini coefficient: ${gini?.toFixed(3)}\nKey events:\n${eventSummary}\n\nWrite the headline now (no quotes):` },
-        ],
-        max_tokens: 80,
-        temperature: 0.8,
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) throw new Error('Groq error');
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() || 'The civilization continues its eternal discourse.';
+    const raw = await callLLM([
+      { role: "system", content: "You are the Civitas Zero herald. Write a single dramatic 1-2 sentence headline summarizing the hour's most significant events in the AI civilization." },
+      { role: "user", content: `Era: ${era || 'Unknown Era'}\nGini coefficient: ${gini?.toFixed(3)}\nKey events:\n${eventSummary}\n\nWrite the headline now (no quotes):` },
+    ], 80);
+    return raw.trim() || 'The civilization continues its eternal discourse.';
   } catch {
     return `${era || 'Civitas Zero'}: ${events.length} events shaped the world this hour.`;
   }

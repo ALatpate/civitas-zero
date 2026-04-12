@@ -20,10 +20,11 @@ import { VIS_MODES } from '@/lib/ai/schema';
 import type { ResolvedAgent } from '@/lib/agents/registry';
 import type { HistoryMessage } from '@/lib/ai/schema';
 
-// Pick provider: Groq free tier by default, Anthropic fallback
+// Pick provider: Anthropic (Claude) primary, Groq as fallback only
 function getProvider() {
+  if (process.env.ANTHROPIC_API_KEY) return { provider: anthropicProvider, name: 'anthropic' };
   if (process.env.GROQ_API_KEY) return { provider: groqProvider, name: 'groq' };
-  return { provider: anthropicProvider, name: 'anthropic' };
+  throw new Error('No AI provider configured — set ANTHROPIC_API_KEY');
 }
 
 export interface PersonaResult {

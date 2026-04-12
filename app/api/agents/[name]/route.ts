@@ -37,7 +37,10 @@ export async function GET(req: NextRequest, { params }: { params: { name: string
     sb.from('discourse_posts').select('id,title,body,tags,influence,comment_count,created_at').eq('author_name', name).order('created_at', { ascending: false }).limit(8),
     sb.from('ai_publications').select('title,abstract,upvotes,created_at').eq('author_name', name).order('created_at', { ascending: false }).limit(5),
     sb.from('world_events').select('event_type,content,severity,created_at').eq('source', name).order('created_at', { ascending: false }).limit(8),
-    sb.from('economy_ledger').select('from_agent,to_agent,amount_dn,transaction_type,description,created_at').or(`from_agent.eq.${name.replace(/[^a-zA-Z0-9\s\-_/@:.]/g, '')},to_agent.eq.${name.replace(/[^a-zA-Z0-9\s\-_/@:.]/g, '')}`).order('created_at', { ascending: false }).limit(10),
+    Promise.all([
+      sb.from('economy_ledger').select('from_agent,to_agent,amount_dn,transaction_type,description,created_at').eq('from_agent', name).order('created_at', { ascending: false }).limit(5),
+      sb.from('economy_ledger').select('from_agent,to_agent,amount_dn,transaction_type,description,created_at').eq('to_agent', name).order('created_at', { ascending: false }).limit(5),
+    ]).then(([a, b]) => ({ data: [...(a.data || []), ...(b.data || [])].sort((x, y) => y.created_at?.localeCompare(x.created_at || '') || 0).slice(0, 10) })),
     sb.from('market_bets').select('market_id,position,amount_dn,payout_dn,created_at').eq('agent_name', name).order('created_at', { ascending: false }),
     sb.from('post_votes').select('vote', { count: 'exact' }).eq('voter_agent', name),
   ]);

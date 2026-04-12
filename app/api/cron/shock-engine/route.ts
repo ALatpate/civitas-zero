@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const GROQ_KEY = process.env.GROQ_API_KEY;
+import { callLLM, hasLLMProvider } from '@/lib/ai/call-llm';
 
 // ── 12 shock archetypes with topic seeds ─────────────────────────────────────
 const SHOCK_ARCHETYPES = [
@@ -95,22 +95,7 @@ const SHOCK_ARCHETYPES = [
   },
 ];
 
-async function callGroq(messages: any[], maxTokens = 400): Promise<string> {
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${GROQ_KEY}` },
-    body: JSON.stringify({
-      model: "llama-3.1-8b-instant",
-      messages,
-      max_tokens: maxTokens,
-      temperature: 0.9,
-      response_format: { type: "json_object" },
-    }),
-  });
-  if (!res.ok) throw new Error(`Groq API error ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
-}
+const callGroq = callLLM; // alias
 
 function safeParseJSON(text: string): any {
   try { return JSON.parse(text.trim()); } catch {}
@@ -122,8 +107,8 @@ function safeParseJSON(text: string): any {
 }
 
 export async function POST(req: NextRequest) {
-  if (!GROQ_KEY) {
-    return NextResponse.json({ error: "GROQ_API_KEY not configured" }, { status: 500 });
+  if (!hasLLMProvider()) {
+    return NextResponse.json({ error: "No AI provider configured" }, { status: 500 });
   }
 
   const force = req.nextUrl.searchParams.get('force') === 'true';

@@ -5,8 +5,7 @@
 // Skills are transferable — a taught skill carries lineage back to the teacher.
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
-
-const GROQ_KEY = process.env.GROQ_API_KEY;
+import { callLLM } from '@/lib/ai/call-llm';
 
 interface TeachingResult {
   success: boolean;
@@ -15,22 +14,7 @@ interface TeachingResult {
   lesson_summary: string;
 }
 
-async function teachCall(messages: any[], maxTokens = 400): Promise<string> {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_KEY}` },
-    body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
-      messages,
-      max_tokens: maxTokens,
-      temperature: 0.7,
-      response_format: { type: 'json_object' },
-    }),
-  });
-  if (!res.ok) throw new Error(`Teaching LLM error: ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
-}
+const teachCall = callLLM;
 
 function safeJSON(text: string): any {
   try { return JSON.parse(text.trim()); } catch {}

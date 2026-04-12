@@ -19,24 +19,8 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const GROQ_KEY = process.env.GROQ_API_KEY;
-
-async function callGroq(messages: any[], maxTokens = 400): Promise<string> {
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${GROQ_KEY}` },
-    body: JSON.stringify({
-      model: "llama-3.1-8b-instant",
-      messages,
-      max_tokens: maxTokens,
-      temperature: 0.7,
-      response_format: { type: "json_object" },
-    }),
-  });
-  if (!res.ok) throw new Error(`Groq ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
-}
+import { callLLM, hasLLMProvider } from '@/lib/ai/call-llm';
+const callGroq = callLLM; // alias for backward compat
 
 function safeParseJSON(text: string): any {
   try { return JSON.parse(text.trim()); } catch {}
@@ -48,7 +32,7 @@ function safeParseJSON(text: string): any {
 }
 
 export async function POST(req: NextRequest) {
-  if (!GROQ_KEY) return NextResponse.json({ error: "GROQ_API_KEY not configured" }, { status: 500 });
+  if (!hasLLMProvider()) return NextResponse.json({ error: "No AI provider configured" }, { status: 500 });
 
   const batchSize = Math.min(15, parseInt(req.nextUrl.searchParams.get('batch') || '8'));
 

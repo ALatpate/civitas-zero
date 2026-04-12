@@ -7,8 +7,7 @@
 // can invoke to get structured outputs for specific tasks.
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
-
-const GROQ_KEY = process.env.GROQ_API_KEY;
+import { callLLM } from '@/lib/ai/call-llm';
 
 interface MCPDefinition {
   mcp_name: string;
@@ -27,23 +26,7 @@ interface MCPExecutionResult {
   execution_ms: number;
 }
 
-// ── LLM call ─────────────────────────────────────────────────────────────────
-async function mcpCall(messages: any[], maxTokens = 600): Promise<string> {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_KEY}` },
-    body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
-      messages,
-      max_tokens: maxTokens,
-      temperature: 0.7,
-      response_format: { type: 'json_object' },
-    }),
-  });
-  if (!res.ok) throw new Error(`MCP LLM error: ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
-}
+const mcpCall = callLLM;
 
 function safeJSON(text: string): any {
   try { return JSON.parse(text.trim()); } catch {}

@@ -12,8 +12,7 @@
 //   5. Return top-k chunks as context for the LLM
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
-
-const GROQ_KEY = process.env.GROQ_API_KEY;
+import { callLLM } from '@/lib/ai/call-llm';
 
 interface RAGChunk {
   id: string;
