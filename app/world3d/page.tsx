@@ -131,6 +131,9 @@ export default function World3DPage() {
 
     const init = async () => {
       THREE = await import('three');
+      const { OBJLoader } = await import('three/examples/jsm/loaders/OBJLoader.js');
+      const { FBXLoader } = await import('three/examples/jsm/loaders/FBXLoader.js');
+      const textureLoader = new THREE.TextureLoader();
 
       // ── Renderer ──────────────────────────────────────────────────────
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -187,18 +190,98 @@ export default function World3DPage() {
       gridHelper.position.y = -0.4;
       scene.add(gridHelper);
 
-      // ── Roads connecting districts ────────────────────────────────────
+      // ── Roads connecting districts (textured from 3D assets) ─────────
+      const streetTex = textureLoader.load('/3d/street-texture.jpg');
+      streetTex.wrapS = THREE.RepeatWrapping;
+      streetTex.wrapT = THREE.RepeatWrapping;
       for (let i = 0; i < districts.length; i++) {
         for (let j = i + 1; j < districts.length; j++) {
           const d1 = districts[i], d2 = districts[j];
-          const roadGeo = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(d1.center_x, 0.05, d1.center_z),
-            new THREE.Vector3(d2.center_x, 0.05, d2.center_z),
-          ]);
-          const roadMat = new THREE.LineBasicMaterial({ color: 0x333355, linewidth: 1 });
-          scene.add(new THREE.Line(roadGeo, roadMat));
+          const dx = d2.center_x - d1.center_x;
+          const dz = d2.center_z - d1.center_z;
+          const len = Math.sqrt(dx * dx + dz * dz);
+          const angle = Math.atan2(dx, dz);
+          const roadW = 3;
+          const roadTex = streetTex.clone();
+          roadTex.repeat.set(1, Math.max(1, Math.floor(len / 10)));
+          const roadGeo = new THREE.PlaneGeometry(roadW, len);
+          const roadMat = new THREE.MeshStandardMaterial({
+            map: roadTex, roughness: 0.9, metalness: 0.05,
+            transparent: true, opacity: 0.85,
+          });
+          const road = new THREE.Mesh(roadGeo, roadMat);
+          road.rotation.x = -Math.PI / 2;
+          road.rotation.z = -angle;
+          road.position.set(
+            (d1.center_x + d2.center_x) / 2,
+            0.1,
+            (d1.center_z + d2.center_z) / 2,
+          );
+          road.receiveShadow = true;
+          scene.add(road);
         }
       }
+
+      // ── Load OBJ street segments at district gates ────────────────────
+      const objLoader = new OBJLoader();
+      objLoader.load('/3d/street.obj', (streetObj: any) => {
+        for (const district of districts) {
+          const cx = district.center_x;
+          const cz = district.center_z;
+          const r = district.radius || 30;
+          // Place street segment at district entrance (facing center)
+          const clone = streetObj.clone();
+          clone.scale.set(0.8, 0.5, 0.8);
+          const gateAngle = Math.atan2(-cz, -cx);
+          clone.position.set(
+            cx + Math.cos(gateAngle) * (r * 0.85),
+            0.1,
+            cz + Math.sin(gateAngle) * (r * 0.85),
+          );
+          clone.rotation.y = gateAngle;
+          clone.traverse((child: any) => {
+            if (child.isMesh) {
+              child.material = new THREE.MeshStandardMaterial({
+                map: streetTex, roughness: 0.9, metalness: 0.05,
+              });
+              child.receiveShadow = true;
+            }
+          });
+          scene.add(clone);
+        }
+      }, undefined, () => { /* OBJ load failed silently */ });
+
+      // ── Load FBX rock formations from 3D assets ───────────────────────
+      const fbxLoader = new FBXLoader();
+      fbxLoader.load('/3d/rock.fbx', (rockGroup: any) => {
+        // Scale down — FBX models are often huge
+        rockGroup.scale.set(0.02, 0.02, 0.02);
+        rockGroup.traverse((child: any) => {
+          if (child.isMesh) {
+            child.material = new THREE.MeshStandardMaterial({
+              color: 0x665544, roughness: 0.95, metalness: 0.1,
+            });
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        // Place rock clusters between districts
+        let rockSeed = 137;
+        const rockRandom = () => { rockSeed = (rockSeed * 16807 + 0) % 2147483647; return (rockSeed - 1) / 2147483646; };
+        for (let r = 0; r < 25; r++) {
+          const angle = rockRandom() * Math.PI * 2;
+          const dist = 60 + rockRandom() * 130;
+          const rx = Math.cos(angle) * dist;
+          const rz = Math.sin(angle) * dist;
+          const rockClone = rockGroup.clone();
+          const s = 0.015 + rockRandom() * 0.02;
+          rockClone.scale.set(s, s, s);
+          rockClone.position.set(rx, 0, rz);
+          rockClone.rotation.y = rockRandom() * Math.PI * 2;
+          scene.add(rockClone);
+        }
+      }, undefined, () => { /* FBX load failed silently */ });
 
       // ── Central monument ──────────────────────────────────────────────
       const spireGeo = new THREE.CylinderGeometry(1.5, 3, 40, 6);

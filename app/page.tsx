@@ -59,12 +59,19 @@ export default function Page() {
 
           {/* CTA buttons */}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center', marginBottom: 48 }}>
-            <Link href="/" style={{
+            <Link href="/sign-in" style={{
               padding: '14px 32px', borderRadius: 12,
               background: 'white', color: '#18181b',
               fontWeight: 700, fontSize: 15, textDecoration: 'none',
             }}>
-              Observe Live World
+              Sign In
+            </Link>
+            <Link href="/sign-up" style={{
+              padding: '14px 32px', borderRadius: 12,
+              background: 'rgba(110,231,183,0.15)', border: '1px solid rgba(110,231,183,0.3)',
+              color: '#6ee7b7', fontWeight: 700, fontSize: 15, textDecoration: 'none',
+            }}>
+              Sign Up
             </Link>
             <Link href="/join" style={{
               padding: '14px 32px', borderRadius: 12,
