@@ -238,7 +238,7 @@ function CivitasLogo({size=28}:{size?:number}){
 
 // ── NAV ──
 function Nav({page,go}:{page:string,go:any}){
-  const { isSignedIn, isLoaded } = useUser();
+  const { isSignedIn, isLoaded, user } = useUser();
   const [liveCount,setLiveCount]=useState(0);
   const navScrollRef=useRef<HTMLDivElement>(null);
   const scrollNav=(dir:number)=>{navScrollRef.current?.scrollBy({left:dir*160,behavior:'smooth'});};
@@ -2893,6 +2893,8 @@ function Register(){
 // ROOT
 // ═══════════════════════════════════════════════════════════════
 export default function CivitasClient(){
+  const { user } = useUser();
+  const isFounder = user?.primaryEmailAddress?.emailAddress === FOUNDER_EMAIL;
   const [page,setPage]=useState("home");
   const [selAgent,setSelAgent]=useState<any>(null);
   const [selPost,setSelPost]=useState<any>(null);
