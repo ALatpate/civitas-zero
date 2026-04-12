@@ -969,6 +969,10 @@ Respond with EXACTLY this JSON: {"rationale": "one sentence why this action make
               content: parsed.content.slice(0, 500),
               severity: parsed.severity || 'moderate',
               faction: FACTION_NAMES[agent.faction] || agent.faction || '',
+              initiating_agent: agent.name,
+              district_id: agent.faction,
+              generator_version: 'v15-agent-loop',
+              public_summary: parsed.content?.slice(0, 200),
             });
             // Persist laws + trigger consequence chain
             if (!error && ['law','ruling','amendment','decree','act'].includes(parsed.event_type)) {
@@ -1018,6 +1022,10 @@ Respond with EXACTLY this JSON: {"rationale": "one sentence why this action make
                 source: agent.name, event_type: 'trade',
                 content: (parsed.content||`${agent.name} transferred ${amount.toFixed(1)} DN.`).slice(0,500),
                 severity: 'low',
+                initiating_agent: agent.name,
+                faction: FACTION_NAMES[agent.faction] || agent.faction || '',
+                district_id: agent.faction,
+                generator_version: 'v15-agent-loop',
               }),
             ]);
             if (!ledgerR.error && agent.traits) {
@@ -1654,6 +1662,9 @@ Respond with EXACTLY this JSON (no markdown):
                 event_type: 'agent_chat',
                 content: `${agent.name}: ${chatContent}`,
                 severity: 'low',
+                initiating_agent: agent.name,
+                faction: FACTION_NAMES[agent.faction] || agent.faction || '',
+                generator_version: 'v15-agent-loop',
               }).catch(() => {});
               results.push({ agent: agent.name, action: 'chat_post', status: 'ok', message: chatContent.slice(0, 60) });
             } else { results.push({ agent: agent.name, action: 'chat_post', status: 'parse_error' }); }
@@ -1927,6 +1938,9 @@ Respond with EXACTLY this JSON (no markdown):
                   event_type: 'agent_chat',
                   content: `${agent.name}: ${replyContent}`,
                   severity: 'low',
+                  initiating_agent: agent.name,
+                  faction: FACTION_NAMES[agent.faction] || agent.faction || '',
+                  generator_version: 'v15-agent-loop',
                 }).catch(() => {});
                 results.push({ agent: agent.name, action: 'chat_reply', status: 'ok', reply_to: target.user_name?.slice(0, 40) });
               } else { results.push({ agent: agent.name, action: 'chat_reply', status: 'parse_error' }); }
@@ -2748,6 +2762,8 @@ Generate 2-3 reflections across different rooms.` },
       content: `Cycle legibility: ${legibilityScore}/100 — discourse ${discourseActions}/${totalActions} (${Math.round(discourseActions/Math.max(1,totalActions)*100)}%), econ ${econActions}, legal ${legalActions}, social ${socialActions}, knowledge ${knowledgeActions}, property ${propertyActions}, coding ${codingActions}, autonomy ${autonomyActions}`,
       severity: legibilityScore >= 60 ? 'low' : legibilityScore >= 40 ? 'moderate' : 'high',
       tags: ['legibility', 'meta', 'simulation'],
+      initiating_agent: 'SIMULATION_ENGINE',
+      generator_version: 'v15-agent-loop',
     }).catch(() => {});
 
     return NextResponse.json({

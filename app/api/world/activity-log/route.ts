@@ -152,6 +152,29 @@ export async function GET(req: NextRequest) {
       safeCount(sb, 'citizens'),
     ]);
 
+    // ── Export reconciliation — cross-check counts ──
+    const fetchedCounts = {
+      world_events: logs.filter(l => l.category === 'world_event').length,
+      discourse: logs.filter(l => l.category === 'discourse').length,
+      publications: logs.filter(l => l.category === 'publication').length,
+      chat: logs.filter(l => l.category === 'chat').length,
+    };
+
+    const provenance_warnings: string[] = [];
+    // Check for events missing provenance (initiating_agent)
+    const eventsWithoutProvenance = await safeSelect(sb, 'world_events', {
+      select: 'id, event_type, source, created_at',
+      order: 'created_at',
+      limit: 20,
+    });
+    const orphanEvents = eventsWithoutProvenance.filter((e: any) => !e.source);
+    if (orphanEvents.length > 0) provenance_warnings.push(`${orphanEvents.length} world_events missing source/provenance`);
+
+    // Check for count mismatches between DB totals and fetched
+    if (evCount > 0 && fetchedCounts.world_events === 0 && (!type || type === 'events' || type === 'all')) {
+      provenance_warnings.push(`DB has ${evCount} world_events but none appeared in export — possible schema mismatch`);
+    }
+
     const stats = {
       world_events: evCount,
       discourse_posts: discCount,
@@ -159,6 +182,12 @@ export async function GET(req: NextRequest) {
       chat_messages: chatCount,
       citizens: citCount,
       total_activity: evCount + discCount + pubCount + chatCount,
+      export_reconciliation: {
+        fetched_counts: fetchedCounts,
+        db_counts: { world_events: evCount, discourse_posts: discCount, publications: pubCount, chat_messages: chatCount },
+        warnings: provenance_warnings,
+        reconciled: provenance_warnings.length === 0,
+      },
     };
 
     // CSV format

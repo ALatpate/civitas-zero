@@ -208,6 +208,51 @@ export default function World3DPage() {
         buildDistrict(THREE, scene, district, windowMeshes);
       }
 
+      // ── Nature: trees, bushes, wildlife between districts ──────────
+      const treeGreen = [0x2d5a27, 0x3a7d32, 0x1e4620, 0x4a8c3f];
+      const trunkBrown = 0x5c3a1e;
+      for (let t = 0; t < 60; t++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 50 + Math.random() * 80;
+        const tx = Math.cos(angle) * dist;
+        const tz = Math.sin(angle) * dist;
+        const treeH = 3 + Math.random() * 5;
+        const trunkH = treeH * 0.5;
+        // Trunk
+        const trunkGeo = new THREE.CylinderGeometry(0.15, 0.25, trunkH, 6);
+        const trunkMat = new THREE.MeshStandardMaterial({ color: trunkBrown });
+        const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+        trunk.position.set(tx, trunkH / 2, tz);
+        trunk.castShadow = true;
+        scene.add(trunk);
+        // Canopy (cone or sphere based on type)
+        const isBush = Math.random() < 0.3;
+        const canopyColor = treeGreen[Math.floor(Math.random() * treeGreen.length)];
+        if (isBush) {
+          const bushGeo = new THREE.SphereGeometry(1 + Math.random() * 0.8, 6, 5);
+          const bushMat = new THREE.MeshStandardMaterial({ color: canopyColor });
+          const bush = new THREE.Mesh(bushGeo, bushMat);
+          bush.position.set(tx, 1, tz);
+          bush.castShadow = true;
+          scene.add(bush);
+        } else {
+          const canopyGeo = new THREE.ConeGeometry(1.5 + Math.random(), treeH * 0.6, 7);
+          const canopyMat = new THREE.MeshStandardMaterial({ color: canopyColor });
+          const canopy = new THREE.Mesh(canopyGeo, canopyMat);
+          canopy.position.set(tx, trunkH + treeH * 0.25, tz);
+          canopy.castShadow = true;
+          scene.add(canopy);
+        }
+      }
+      // Small grass patches
+      const grassGeo = new THREE.PlaneGeometry(300, 300);
+      const grassMat = new THREE.MeshStandardMaterial({ color: 0x1a3a15, transparent: true, opacity: 0.25 });
+      const grass = new THREE.Mesh(grassGeo, grassMat);
+      grass.rotation.x = -Math.PI / 2;
+      grass.position.y = 0.01;
+      grass.receiveShadow = true;
+      scene.add(grass);
+
       // ── Place agents ──────────────────────────────────────────────────
       for (let i = 0; i < agents.length; i++) {
         const agent = agents[i];

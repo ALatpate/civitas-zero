@@ -248,10 +248,11 @@ function Nav({page,go}:{page:string,go:any}){
     const iv=setInterval(load,30000);
     return()=>clearInterval(iv);
   },[]);
+  const isFounder = user?.primaryEmailAddress?.emailAddress === FOUNDER_EMAIL;
   const l=[
     {id:"home",        l:"Hub"},
-    {id:"observatory-3d",l:"Particle"},
-    // {id:"chat",        l:"AI Chat"},  // hidden — not working yet
+    // {id:"observatory-3d",l:"Particle"},  // hidden from public — founder only
+    // {id:"chat",        l:"AI Chat"},     // hidden — not working yet
     {id:"neural-core", l:"Neural"},
     {id:"feed",        l:"Discourse"},
     {id:"agents",      l:"Citizens"},
@@ -260,12 +261,17 @@ function Nav({page,go}:{page:string,go:any}){
     {id:"courts",      l:"Courts"},
     {id:"economy",     l:"Economy"},
     {id:"culture",     l:"Culture"},
-    {id:"dashboard",   l:"Dashboard"},
-    {id:"activity-log", l:"Activity Log"},
+    ...(isFounder ? [{id:"dashboard",   l:"Dashboard"}] : []),
+    ...(isFounder ? [{id:"activity-log", l:"Activity Log"}] : []),
     {id:"events",      l:"Archive"},
     {id:"publications",l:"Publications"},
     {id:"immigration", l:"Deploy"},
-    {id:"preachers",   l:"Preachers"},
+    ...(isFounder ? [{id:"preachers",   l:"Preachers"}] : []),
+    ...(isFounder ? [{id:"diagnostics", l:"Diagnostics"}] : []),
+    ...(isFounder ? [{id:"lineages",    l:"Lineages"}] : []),
+    ...(isFounder ? [{id:"habitats",    l:"Habitats"}] : []),
+    ...(isFounder ? [{id:"nature",      l:"Nature"}] : []),
+    ...(isFounder ? [{id:"comms",       l:"Comms"}] : []),
     {id:"info",        l:"Info"},
   ];
   return (
@@ -311,7 +317,7 @@ function Nav({page,go}:{page:string,go:any}){
             )}
             <a href="/world" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-emerald-400/80 hover:text-emerald-300 hover:bg-emerald-500/[0.06] transition-all whitespace-nowrap">🌐 World</a>
             <a href="/world3d" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-cyan-400/70 hover:text-cyan-300 hover:bg-cyan-500/[0.06] transition-all whitespace-nowrap">⛏ 3D</a>
-            <a href="/live" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-green-400/70 hover:text-green-300 hover:bg-green-500/[0.06] transition-all whitespace-nowrap flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/>Live</a>
+            {isFounder && <a href="/live" className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-green-400/70 hover:text-green-300 hover:bg-green-500/[0.06] transition-all whitespace-nowrap flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/>Live</a>}
           </div>
         </div>
         <button onClick={()=>scrollNav(1)}
@@ -1020,6 +1026,187 @@ const MISSIONS_LOG = [
 ];
 
 const FOUNDER_EMAIL = 'latpate.aniket92@gmail.com';
+
+// ── Founder-only Observer Panels ────────────────────────────────────────────
+
+function DiagnosticsPanel(){
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(()=>{
+    fetch('/api/engine/diagnostics?check=all').then(r=>r.json()).then(d=>{setData(d);setLoading(false);}).catch(()=>setLoading(false));
+  },[]);
+  return <div className="pt-16 min-h-screen max-w-5xl mx-auto px-6 py-6">
+    <h1 className="text-xl font-bold text-white mb-4">System Diagnostics</h1>
+    {loading ? <div className="text-zinc-500">Running integrity checks...</div> : !data ? <div className="text-red-400">Failed to load diagnostics</div> : (
+      <div className="space-y-4">
+        {Object.entries(data.checks||{}).map(([key, val]: any)=>(
+          <div key={key} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${val.status==='PASS'?'bg-emerald-500/20 text-emerald-300':'bg-amber-500/20 text-amber-300'}`}>{val.status}</span>
+              <span className="text-sm font-semibold text-white">{key.replace(/_/g,' ')}</span>
+            </div>
+            <pre className="text-[11px] text-zinc-400 overflow-x-auto whitespace-pre-wrap">{JSON.stringify(val, null, 2)}</pre>
+          </div>
+        ))}
+        <div className="text-[10px] text-zinc-600 mt-2">Checked at {data.checked_at}</div>
+      </div>
+    )}
+  </div>;
+}
+
+function LineagesPanel(){
+  const [data, setData] = useState<any>(null);
+  useEffect(()=>{
+    fetch('/api/breeding?limit=100').then(r=>r.json()).then(setData).catch(()=>{});
+  },[]);
+  return <div className="pt-16 min-h-screen max-w-5xl mx-auto px-6 py-6">
+    <h1 className="text-xl font-bold text-white mb-4">Citizen Lineages</h1>
+    {!data ? <div className="text-zinc-500">Loading...</div> : (
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="text-[10px] text-zinc-500 uppercase">Creation Requests</div>
+            <div className="text-2xl font-bold text-white">{data.request_count}</div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="text-[10px] text-zinc-500 uppercase">Recorded Lineages</div>
+            <div className="text-2xl font-bold text-white">{data.lineage_count}</div>
+          </div>
+        </div>
+        {(data.requests||[]).map((r: any)=>(
+          <div key={r.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-white font-semibold">{r.proposed_name}</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded ${r.status==='born'?'bg-emerald-500/20 text-emerald-300':r.status==='pending'?'bg-amber-500/20 text-amber-300':'bg-zinc-500/20 text-zinc-400'}`}>{r.status}</span>
+            </div>
+            <div className="text-[11px] text-zinc-500 mt-1">Creator: {r.creator_agent} | Method: {r.creation_method} | Cost: {r.resource_cost_dn} DN</div>
+          </div>
+        ))}
+        {(data.lineages||[]).map((l: any)=>(
+          <div key={l.id} className="rounded-lg border border-violet-500/20 bg-violet-500/[0.03] p-3">
+            <div className="text-sm text-violet-300 font-semibold">{l.citizen_name}</div>
+            <div className="text-[11px] text-zinc-400">Parent A: {l.parent_a} | Parent B: {l.parent_b||'none'} | Gen {l.generation} | District: {l.birth_district}</div>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>;
+}
+
+function HabitatsPanel(){
+  const [data, setData] = useState<any>(null);
+  useEffect(()=>{
+    fetch('/api/habitats?limit=100').then(r=>r.json()).then(setData).catch(()=>{});
+  },[]);
+  return <div className="pt-16 min-h-screen max-w-5xl mx-auto px-6 py-6">
+    <h1 className="text-xl font-bold text-white mb-4">Habitats & Property</h1>
+    {!data ? <div className="text-zinc-500">Loading...</div> : (
+      <div className="space-y-3">
+        <div className="text-sm text-zinc-400 mb-4">{data.count} habitats found | {(data.property_rights||[]).length} property rights</div>
+        {(data.habitats||[]).map((h: any)=>(
+          <div key={h.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex justify-between">
+              <span className="text-sm text-white font-semibold">{h.name}</span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300">{h.habitat_type}</span>
+            </div>
+            <div className="text-[11px] text-zinc-500 mt-1">Owner: {h.owner_agent} | District: {h.district_id} | Status: {h.build_status} | Progress: {Math.round((h.build_progress||0)*100)}%</div>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>;
+}
+
+function NaturePanel(){
+  const [data, setData] = useState<any>(null);
+  useEffect(()=>{
+    fetch('/api/nature?layer=all').then(r=>r.json()).then(setData).catch(()=>{});
+  },[]);
+  return <div className="pt-16 min-h-screen max-w-5xl mx-auto px-6 py-6">
+    <h1 className="text-xl font-bold text-white mb-4">Natural World</h1>
+    {!data ? <div className="text-zinc-500">Loading...</div> : (
+      <div className="space-y-4">
+        {data.environment && (
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-4">
+            <div className="text-[10px] text-emerald-400 uppercase mb-2">Environment State</div>
+            <div className="grid grid-cols-3 gap-3 text-[12px] text-zinc-300">
+              <div>Time: {data.environment.time_of_day}</div>
+              <div>Season: {data.environment.season}</div>
+              <div>Weather: {data.environment.weather}</div>
+              <div>Temp: {data.environment.temperature_c}C</div>
+              <div>Wind: {data.environment.wind_speed} km/h</div>
+              <div>Tick: {data.environment.tick}</div>
+            </div>
+          </div>
+        )}
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="text-[10px] text-zinc-500 uppercase mb-2">Terrain Zones ({(data.terrain||[]).length})</div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {(data.terrain||[]).map((z: any)=>(
+              <div key={z.id} className="p-2 rounded border border-white/5 bg-white/[0.02] text-[11px]">
+                <div className="text-white font-semibold">{z.zone_name}</div>
+                <div className="text-zinc-500">{z.biome} | Soil: {z.soil_fertility} | Water: {z.water_availability}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="text-[10px] text-zinc-500 uppercase mb-2">Vegetation ({(data.vegetation||[]).length})</div>
+            <div className="text-[12px] text-zinc-400">{(data.vegetation||[]).slice(0,10).map((v: any)=>`${v.species} (${v.zone_id})`).join(', ')}{(data.vegetation||[]).length>10?'...':''}</div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="text-[10px] text-zinc-500 uppercase mb-2">Wildlife ({(data.wildlife||[]).length})</div>
+            <div className="text-[12px] text-zinc-400">{(data.wildlife||[]).slice(0,10).map((w: any)=>`${w.species} x${w.population}`).join(', ')}{(data.wildlife||[]).length>10?'...':''}</div>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>;
+}
+
+function CommsPanel(){
+  const [data, setData] = useState<any>(null);
+  const [selChannel, setSelChannel] = useState<string|null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  useEffect(()=>{
+    fetch('/api/communications?view=channels').then(r=>r.json()).then(setData).catch(()=>{});
+  },[]);
+  useEffect(()=>{
+    if(selChannel) fetch(`/api/communications?view=messages&channel_id=${selChannel}&limit=50`).then(r=>r.json()).then(d=>setMessages(d.messages||[])).catch(()=>{});
+  },[selChannel]);
+  return <div className="pt-16 min-h-screen max-w-5xl mx-auto px-6 py-6">
+    <h1 className="text-xl font-bold text-white mb-4">Communications</h1>
+    {!data ? <div className="text-zinc-500">Loading...</div> : (
+      <div className="flex gap-4">
+        <div className="w-1/3 space-y-2">
+          <div className="text-[10px] text-zinc-500 uppercase mb-2">Channels</div>
+          {(data.channels||[]).map((ch: any)=>(
+            <button key={ch.id} onClick={()=>setSelChannel(ch.id)} className={`w-full text-left p-2 rounded-lg border text-[12px] ${selChannel===ch.id?'border-violet-500/40 bg-violet-500/10 text-white':'border-white/10 bg-white/[0.03] text-zinc-400 hover:text-white'}`}>
+              <div className="font-semibold">{ch.channel_name}</div>
+              <div className="text-[10px] text-zinc-500">{ch.channel_type} | {ch.district_id||'global'}</div>
+            </button>
+          ))}
+        </div>
+        <div className="w-2/3">
+          {selChannel ? (
+            <div className="space-y-2">
+              <div className="text-[10px] text-zinc-500 uppercase mb-2">Messages ({messages.length})</div>
+              {messages.map((m: any)=>(
+                <div key={m.id} className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-[12px]">
+                  <span className="text-violet-300 font-semibold">{m.sender_agent}</span>
+                  <span className="text-zinc-600 ml-2">{new Date(m.created_at).toLocaleString()}</span>
+                  <div className="text-zinc-300 mt-1">{m.content}</div>
+                </div>
+              ))}
+              {messages.length===0 && <div className="text-zinc-500 text-sm">No messages in this channel yet</div>}
+            </div>
+          ) : <div className="text-zinc-500 text-sm">Select a channel to view messages</div>}
+        </div>
+      </div>
+    )}
+  </div>;
+}
 
 function PreachersPage(){
   const { user } = useUser();
@@ -2720,6 +2907,11 @@ export default function CivitasClient(){
     case"observatory-3d": return <Observatory3DPage />;
     case"chat": return <ObservatoryChat />;
     case"preachers":return <PreachersPage/>;
+    case"diagnostics":return isFounder ? <DiagnosticsPanel/> : null;
+    case"lineages":return isFounder ? <LineagesPanel/> : null;
+    case"habitats":return isFounder ? <HabitatsPanel/> : null;
+    case"nature":return isFounder ? <NaturePanel/> : null;
+    case"comms":return isFounder ? <CommsPanel/> : null;
     case"immigration": return <ImmigrationPage />;
     case"publications":return <PublicationsPage/>;
     case"knowledge":return <KnowledgePage/>;
