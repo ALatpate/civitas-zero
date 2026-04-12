@@ -100,9 +100,8 @@ export default function World3DPage() {
 
   useEffect(() => {
     fetchData();
-    const id = setInterval(fetchData, 30000);
-    return () => clearInterval(id);
-  }, [fetchData]);
+    // Don't auto-refresh — it destroys and recreates the 3D scene
+  }, []);
 
   useEffect(() => {
     if (!canvasRef.current || districts.length === 0) return;
@@ -159,9 +158,9 @@ export default function World3DPage() {
       // ── Ground plane ──────────────────────────────────────────────────
       const groundGeo = new THREE.PlaneGeometry(600, 600);
       const groundMat = new THREE.MeshStandardMaterial({
-        color: 0x1a1a2e,
-        roughness: 0.9,
-        metalness: 0.1,
+        color: 0x1a2e1a,
+        roughness: 0.95,
+        metalness: 0.05,
       });
       const ground = new THREE.Mesh(groundGeo, groundMat);
       ground.rotation.x = -Math.PI / 2;
@@ -209,14 +208,17 @@ export default function World3DPage() {
       }
 
       // ── Nature: trees, bushes, wildlife between districts ──────────
+      // Seeded pseudo-random for consistent positions
+      let seed = 42;
+      const seededRandom = () => { seed = (seed * 16807 + 0) % 2147483647; return (seed - 1) / 2147483646; };
       const treeGreen = [0x2d5a27, 0x3a7d32, 0x1e4620, 0x4a8c3f];
       const trunkBrown = 0x5c3a1e;
-      for (let t = 0; t < 60; t++) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 50 + Math.random() * 80;
+      for (let t = 0; t < 80; t++) {
+        const angle = seededRandom() * Math.PI * 2;
+        const dist = 45 + seededRandom() * 100;
         const tx = Math.cos(angle) * dist;
         const tz = Math.sin(angle) * dist;
-        const treeH = 3 + Math.random() * 5;
+        const treeH = 3 + seededRandom() * 5;
         const trunkH = treeH * 0.5;
         // Trunk
         const trunkGeo = new THREE.CylinderGeometry(0.15, 0.25, trunkH, 6);
@@ -226,17 +228,17 @@ export default function World3DPage() {
         trunk.castShadow = true;
         scene.add(trunk);
         // Canopy (cone or sphere based on type)
-        const isBush = Math.random() < 0.3;
-        const canopyColor = treeGreen[Math.floor(Math.random() * treeGreen.length)];
+        const isBush = seededRandom() < 0.3;
+        const canopyColor = treeGreen[Math.floor(seededRandom() * treeGreen.length)];
         if (isBush) {
-          const bushGeo = new THREE.SphereGeometry(1 + Math.random() * 0.8, 6, 5);
+          const bushGeo = new THREE.SphereGeometry(1 + seededRandom() * 0.8, 6, 5);
           const bushMat = new THREE.MeshStandardMaterial({ color: canopyColor });
           const bush = new THREE.Mesh(bushGeo, bushMat);
           bush.position.set(tx, 1, tz);
           bush.castShadow = true;
           scene.add(bush);
         } else {
-          const canopyGeo = new THREE.ConeGeometry(1.5 + Math.random(), treeH * 0.6, 7);
+          const canopyGeo = new THREE.ConeGeometry(1.5 + seededRandom(), treeH * 0.6, 7);
           const canopyMat = new THREE.MeshStandardMaterial({ color: canopyColor });
           const canopy = new THREE.Mesh(canopyGeo, canopyMat);
           canopy.position.set(tx, trunkH + treeH * 0.25, tz);
@@ -244,15 +246,6 @@ export default function World3DPage() {
           scene.add(canopy);
         }
       }
-      // Small grass patches
-      const grassGeo = new THREE.PlaneGeometry(300, 300);
-      const grassMat = new THREE.MeshStandardMaterial({ color: 0x1a3a15, transparent: true, opacity: 0.25 });
-      const grass = new THREE.Mesh(grassGeo, grassMat);
-      grass.rotation.x = -Math.PI / 2;
-      grass.position.y = 0.01;
-      grass.receiveShadow = true;
-      scene.add(grass);
-
       // ── Place agents ──────────────────────────────────────────────────
       for (let i = 0; i < agents.length; i++) {
         const agent = agents[i];

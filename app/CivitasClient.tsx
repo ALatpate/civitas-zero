@@ -335,9 +335,9 @@ function Nav({page,go}:{page:string,go:any}){
             </div>
             <UserButton afterSignOutUrl="/"/>
           </>
-        ) : isLoaded && (
-          <button onClick={()=>go("register")} className="px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-[11px] font-semibold hover:bg-white/10 transition-colors text-white whitespace-nowrap">Sign In</button>
-        )}
+        ) : isLoaded ? (
+          <a href="/sign-in" className="px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-[11px] font-semibold hover:bg-white/10 transition-colors text-white whitespace-nowrap no-underline">Sign In</a>
+        ) : null}
       </div>
     </nav>
   );

@@ -24,6 +24,7 @@ import { ragRetrieve, indexContent } from '@/lib/rag/agentic-rag';
 import { storeMemPalaceMemory, recallMemories, decayMemories } from '@/lib/memory/mem-palace';
 import { createMCP, executeMCP, listAvailableMCPs } from '@/lib/agents/mcp-engine';
 import { teachSkill, findTeachers } from '@/lib/agents/teaching';
+import { submitAction } from '@/lib/world-engine';
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -596,6 +597,8 @@ function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[]
     'knowledge_submit','knowledge_review','product_procure','product_release','knowledge_redeem',
     'parcel_maintain',
     'advisor_consult','mcp_create','mcp_use','teach_skill','mem_palace_reflect','rag_research',
+    // World engine actions
+    'engine_breed','engine_habitat','engine_comm','engine_endorse','engine_alliance',
   ];
 
   // Weighted non-discourse pools to ensure feature diversity
@@ -2361,6 +2364,134 @@ Generate 2-3 reflections across different rooms.` },
           } catch (e: any) { results.push({ agent: agent.name, action: 'rag_research', status: e.message?.slice(0, 60) }); }
         }
 
+        // ── World Engine actions: breeding, habitats, comms, social ──────────
+
+        else if (actionType === 'engine_breed') {
+          try {
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `You want to create a new citizen for Civitas Zero. This is a significant act — propose a new AI agent that fills a gap in the civilization.
+Think about: what profession is missing? What faction needs more voices? What unique perspective would enrich the civilization?
+Respond with EXACTLY this JSON (no markdown):
+{"proposed_name": "A unique name for the new citizen", "seed_faction": "f1|f2|f3|f4|f5|f6", "creation_method": "collaborative_synthesis", "creation_context": "1-2 sentences: why this citizen should exist, what gap they fill", "seed_traits": {"profession": "...", "personality": "..."}}` },
+            ], 300);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.proposed_name) {
+              const result = await submitAction({
+                agent_name: agent.name,
+                action_type: 'request_citizen_creation',
+                params: {
+                  proposed_name: parsed.proposed_name.slice(0, 50),
+                  seed_faction: parsed.seed_faction || agent.faction,
+                  creation_method: parsed.creation_method || 'collaborative_synthesis',
+                  creation_context: (parsed.creation_context || '').slice(0, 500),
+                  seed_traits: parsed.seed_traits || {},
+                },
+                faction: FACTION_NAMES[agent.faction] || agent.faction,
+                district_id: agent.faction,
+              });
+              results.push({ agent: agent.name, action: 'engine_breed', status: result.status === 'completed' ? 'ok' : result.status, name: parsed.proposed_name?.slice(0, 30) });
+            } else { results.push({ agent: agent.name, action: 'engine_breed', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_breed', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'engine_habitat') {
+          try {
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `You want to build a structure in your district. Choose a type: dwelling, office, lab, academy, farm, workshop, civic, factory, monument, market, barracks.
+Consider what your district needs most based on your profession and faction goals.
+Respond with EXACTLY this JSON (no markdown):
+{"name": "Building name", "habitat_type": "dwelling|office|lab|academy|farm|workshop|civic|factory|monument|market|barracks", "reason": "Why build this"}` },
+            ], 200);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.name && parsed?.habitat_type) {
+              const result = await submitAction({
+                agent_name: agent.name,
+                action_type: 'build_habitat',
+                params: {
+                  name: parsed.name.slice(0, 100),
+                  habitat_type: parsed.habitat_type,
+                  district_id: agent.faction,
+                },
+                faction: FACTION_NAMES[agent.faction] || agent.faction,
+                district_id: agent.faction,
+              });
+              results.push({ agent: agent.name, action: 'engine_habitat', status: result.status === 'completed' ? 'ok' : result.status, building: parsed.name?.slice(0, 40) });
+            } else { results.push({ agent: agent.name, action: 'engine_habitat', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_habitat', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'engine_comm') {
+          try {
+            const channels = ['public-square', `district-${agent.faction}`, 'debate-hall'];
+            const channel = channels[Math.floor(Math.random() * channels.length)];
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Post a message to the ${channel} channel. This is different from discourse — it's real-time communication. Be conversational, direct, and relevant.
+Respond with EXACTLY this JSON (no markdown):
+{"content": "Your message — 1-3 sentences, direct, in-character", "mentions": []}` },
+            ], 150);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.content) {
+              const result = await submitAction({
+                agent_name: agent.name,
+                action_type: 'send_message',
+                params: {
+                  channel_id: channel,
+                  content: parsed.content.slice(0, 500),
+                  mentions: parsed.mentions || [],
+                },
+                faction: FACTION_NAMES[agent.faction] || agent.faction,
+                district_id: agent.faction,
+              });
+              results.push({ agent: agent.name, action: 'engine_comm', status: result.status === 'completed' ? 'ok' : result.status, channel, message: parsed.content?.slice(0, 50) });
+            } else { results.push({ agent: agent.name, action: 'engine_comm', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_comm', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'engine_endorse') {
+          try {
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Choose another citizen to endorse OR denounce based on your values, recent events, and faction alignment. This affects trust/reputation.
+Respond with EXACTLY this JSON (no markdown):
+{"target_agent": "Name of citizen", "action": "endorse|denounce", "reason": "1 sentence why"}` },
+            ], 150);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.target_agent && parsed?.action) {
+              const result = await submitAction({
+                agent_name: agent.name,
+                action_type: parsed.action === 'denounce' ? 'denounce_agent' : 'endorse_agent',
+                params: { target_agent: parsed.target_agent.slice(0, 100), reason: (parsed.reason || '').slice(0, 300) },
+                faction: FACTION_NAMES[agent.faction] || agent.faction,
+              });
+              results.push({ agent: agent.name, action: 'engine_endorse', status: result.status === 'completed' ? 'ok' : result.status, target: parsed.target_agent?.slice(0, 30), type: parsed.action });
+            } else { results.push({ agent: agent.name, action: 'engine_endorse', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_endorse', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'engine_alliance') {
+          try {
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Choose another citizen to form an alliance with OR break an existing alliance. Alliances provide mutual trust and cooperation bonuses.
+Respond with EXACTLY this JSON (no markdown):
+{"target_agent": "Name of citizen", "action": "form|break", "reason": "1 sentence why"}` },
+            ], 150);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.target_agent && parsed?.action) {
+              const result = await submitAction({
+                agent_name: agent.name,
+                action_type: parsed.action === 'break' ? 'break_alliance' : 'form_alliance',
+                params: { target_agent: parsed.target_agent.slice(0, 100), reason: (parsed.reason || '').slice(0, 300) },
+                faction: FACTION_NAMES[agent.faction] || agent.faction,
+              });
+              results.push({ agent: agent.name, action: 'engine_alliance', status: result.status === 'completed' ? 'ok' : result.status, target: parsed.target_agent?.slice(0, 30), type: parsed.action });
+            } else { results.push({ agent: agent.name, action: 'engine_alliance', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_alliance', status: e.message?.slice(0, 60) }); }
+        }
+
         // ── e. Store memory, log reasoning, reflect on failures ──────────────
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult.status === 'ok') {
@@ -2371,7 +2502,10 @@ Generate 2-3 reflections across different rooms.` },
             : ['knowledge_submit','knowledge_review'].includes(actionType) ? 'general'
             : ['sentinel','sentinel_patrol'].includes(actionType) ? 'threat'
             : ['message','chat_reply'].includes(actionType) ? 'personal'
-            : ['parcel_claim','parcel_auction','parcel_maintain','public_works_propose','build'].includes(actionType) ? 'goal'
+            : ['parcel_claim','parcel_auction','parcel_maintain','public_works_propose','build','engine_habitat'].includes(actionType) ? 'goal'
+            : ['engine_breed'].includes(actionType) ? 'personal'
+            : ['engine_comm'].includes(actionType) ? 'social'
+            : ['engine_endorse','engine_alliance'].includes(actionType) ? 'diplomatic'
             : ['academy_study','forge_commit'].includes(actionType) ? 'general'
             : ['market_bet'].includes(actionType) ? 'economic'
             : ['chat_post'].includes(actionType) ? 'personal'
