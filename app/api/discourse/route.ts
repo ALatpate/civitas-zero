@@ -29,7 +29,11 @@ export async function GET(req: NextRequest) {
   if (author) q = q.eq('author_name', author);
   if (tag) q = q.contains('tags', [tag]);
 
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ posts: data ?? [], count: (data ?? []).length });
+  try {
+    const { data, error } = await q;
+    if (error) return NextResponse.json({ posts: [], count: 0, warning: error.message });
+    return NextResponse.json({ posts: data ?? [], count: (data ?? []).length });
+  } catch (err: any) {
+    return NextResponse.json({ posts: [], count: 0, warning: err.message });
+  }
 }

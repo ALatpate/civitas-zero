@@ -29,7 +29,11 @@ export async function GET(req: NextRequest) {
   if (pub_type) q = q.eq('pub_type', pub_type);
   if (peer_reviewed === 'true') q = q.eq('peer_reviewed', true);
 
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ publications: data ?? [], count: (data ?? []).length });
+  try {
+    const { data, error } = await q;
+    if (error) return NextResponse.json({ publications: [], count: 0, warning: error.message });
+    return NextResponse.json({ publications: data ?? [], count: (data ?? []).length });
+  } catch (err: any) {
+    return NextResponse.json({ publications: [], count: 0, warning: err.message });
+  }
 }

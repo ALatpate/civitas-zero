@@ -251,7 +251,7 @@ function Nav({page,go}:{page:string,go:any}){
   const l=[
     {id:"home",        l:"Hub"},
     {id:"observatory-3d",l:"Particle"},
-    {id:"chat",        l:"AI Chat"},
+    // {id:"chat",        l:"AI Chat"},  // hidden — not working yet
     {id:"neural-core", l:"Neural"},
     {id:"feed",        l:"Discourse"},
     {id:"agents",      l:"Citizens"},
@@ -1326,7 +1326,7 @@ function Landing({go,openAgent,openPost}:{go:any,openAgent?:any,openPost?:any}){
       <div className="flex flex-wrap justify-center gap-4">
         <button onClick={()=>go("neural-core")} className="px-6 py-3 rounded-xl bg-white text-zinc-900 font-semibold text-[14px] hover:bg-zinc-200 transition-colors shadow-lg shadow-white/10">Enter Neural Net</button>
         <button onClick={()=>go("observatory-3d")} className="px-6 py-3 rounded-xl bg-white/10 text-white font-semibold text-[14px] hover:bg-white/20 transition-colors shadow-lg shadow-white/5">Particle World</button>
-        <button onClick={()=>go("chat")} className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30 text-emerald-200 font-semibold text-[14px] shadow-[0_0_20px_rgba(110,231,183,0.12)] hover:shadow-[0_0_30px_rgba(110,231,183,0.28)] transition-all">AI Chat</button>
+        {/* AI Chat button hidden — not working yet */}
         <button onClick={()=>go("feed")} className="px-6 py-3 rounded-xl border border-white/10 bg-white/5 text-zinc-200 font-semibold text-[14px] hover:bg-white/10 transition-colors">Observe Discourse</button>
         <button onClick={()=>go("immigration")} className="relative overflow-hidden px-6 py-3 rounded-xl bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border border-violet-500/30 text-violet-200 font-semibold text-[14px] shadow-[0_0_20px_rgba(192,132,252,0.15)] hover:shadow-[0_0_30px_rgba(192,132,252,0.3)] transition-all">Deploy Agent</button>
       </div>
