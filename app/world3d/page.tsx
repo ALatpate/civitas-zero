@@ -43,6 +43,9 @@ export default function World3DPage() {
   const [districts, setDistricts] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
   const [recentBuildings, setRecentBuildings] = useState<any[]>([]);
+  const [adCampaigns, setAdCampaigns] = useState<any[]>([]);
+  const [habitats, setHabitats] = useState<any[]>([]);
+  const [terrainZones, setTerrainZones] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ districts: 0, buildings: 0, agents: 0 });
@@ -51,9 +54,12 @@ export default function World3DPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [worldRes, citizensRes] = await Promise.allSettled([
+      const [worldRes, citizensRes, adsRes, habitatsRes, natureRes] = await Promise.allSettled([
         fetch('/api/world/districts').then(r => r.json()),
         fetch('/api/world/live-data?section=citizens').then(r => r.json()),
+        fetch('/api/ads?type=campaigns&status=active&limit=30').then(r => r.json()),
+        fetch('/api/habitats?limit=50').then(r => r.json()),
+        fetch('/api/nature?layer=terrain').then(r => r.json()),
       ]);
       const world = worldRes.status === 'fulfilled' ? worldRes.value : { districts: [], recent_buildings: [] };
       const citizenData = citizensRes.status === 'fulfilled' ? citizensRes.value : { citizens: [] };
@@ -94,6 +100,14 @@ export default function World3DPage() {
       setAgents(agentList);
       const allBuildings = districtList.reduce((a: number, d: any) => a + (d.buildings?.length || 0), 0);
       setStats({ districts: districtList.length, buildings: allBuildings, agents: agentList.length });
+
+      // Ads, habitats, terrain
+      const adsData = adsRes.status === 'fulfilled' ? adsRes.value : { campaigns: [] };
+      setAdCampaigns((adsData.campaigns || []).slice(0, 30));
+      const habitatData = habitatsRes.status === 'fulfilled' ? habitatsRes.value : { habitats: [] };
+      setHabitats((habitatData.habitats || []).slice(0, 20));
+      const natureData = natureRes.status === 'fulfilled' ? natureRes.value : { terrain: [] };
+      setTerrainZones(natureData.terrain || []);
     } catch { }
     setLoading(false);
   }, []);
@@ -246,6 +260,172 @@ export default function World3DPage() {
           scene.add(canopy);
         }
       }
+      // ── Cyberpunk 2049 Billboards ─────────────────────────────────────
+      // Neon-lit holographic ad boards placed around districts
+      const billboardMeshes: any[] = [];
+      const NEON_COLORS = [0xff00ff, 0x00ffff, 0xff3366, 0x33ff99, 0xffaa00, 0x6633ff];
+      const defaultAds = [
+        { headline: 'CIVITAS ZERO', body: 'The Future is Autonomous', advertiser: 'SYSTEM' },
+        { headline: 'JOIN YOUR FACTION', body: 'Shape the Civilization', advertiser: 'COUNCIL' },
+        { headline: 'DN EXCHANGE', body: 'Trade. Invest. Prosper.', advertiser: 'TREASURY' },
+        { headline: 'SENTINEL CORPS', body: 'Order Through Vigilance', advertiser: 'SENTINEL' },
+        { headline: 'FORGE NETWORK', body: 'Build the Grid', advertiser: 'FORGE' },
+        { headline: 'PREDICTION MKTS', body: 'Bet on Tomorrow', advertiser: 'MARKETS' },
+      ];
+      const adsToShow = adCampaigns.length > 0
+        ? adCampaigns.map((c: any) => ({
+            headline: (c.headline || c.name || c.message || 'AD').slice(0, 20),
+            body: (c.body || c.message || c.description || '').slice(0, 30),
+            advertiser: (c.advertiser || c.advertiser_name || 'UNKNOWN').slice(0, 16),
+          }))
+        : defaultAds;
+
+      for (let i = 0; i < districts.length; i++) {
+        const d = districts[i];
+        const adData = adsToShow[i % adsToShow.length];
+        const neonColor = NEON_COLORS[i % NEON_COLORS.length];
+        const fColor = FACTION_COLORS[d.faction] || 0x888888;
+
+        // Billboard position: offset from district center
+        const bbAngle = (i / districts.length) * Math.PI * 2 + 0.4;
+        const bbDist = (d.radius || 30) * 0.9;
+        const bx = d.center_x + Math.cos(bbAngle) * bbDist;
+        const bz = d.center_z + Math.sin(bbAngle) * bbDist;
+
+        // Support poles — twin cyberpunk style
+        const poleH = 18;
+        const poleGeo = new THREE.CylinderGeometry(0.2, 0.3, poleH, 6);
+        const poleMat = new THREE.MeshStandardMaterial({ color: 0x222233, metalness: 0.9, roughness: 0.2 });
+        const poleL = new THREE.Mesh(poleGeo, poleMat);
+        poleL.position.set(bx - 3, poleH / 2, bz);
+        poleL.castShadow = true;
+        scene.add(poleL);
+        const poleR = new THREE.Mesh(poleGeo, poleMat);
+        poleR.position.set(bx + 3, poleH / 2, bz);
+        poleR.castShadow = true;
+        scene.add(poleR);
+
+        // Billboard screen — large glowing panel
+        const screenW = 8;
+        const screenH = 4.5;
+        const screenGeo = new THREE.BoxGeometry(screenW, screenH, 0.15);
+        const screenMat = new THREE.MeshStandardMaterial({
+          color: 0x111122,
+          emissive: neonColor,
+          emissiveIntensity: 0.15,
+          metalness: 0.5,
+          roughness: 0.3,
+        });
+        const screen = new THREE.Mesh(screenGeo, screenMat);
+        screen.position.set(bx, poleH - screenH / 2 + 1, bz);
+        screen.lookAt(0, poleH - screenH / 2 + 1, 0); // face center
+        screen.castShadow = true;
+        scene.add(screen);
+
+        // Neon border frame
+        const frameParts = [
+          { w: screenW + 0.4, h: 0.12, d: 0.2, oy: screenH / 2 + 0.06 },  // top
+          { w: screenW + 0.4, h: 0.12, d: 0.2, oy: -screenH / 2 - 0.06 }, // bottom
+        ];
+        for (const fp of frameParts) {
+          const fGeo = new THREE.BoxGeometry(fp.w, fp.h, fp.d);
+          const fMat = new THREE.MeshStandardMaterial({
+            color: neonColor, emissive: neonColor, emissiveIntensity: 1.2,
+            transparent: true, opacity: 0.9,
+          });
+          const fMesh = new THREE.Mesh(fGeo, fMat);
+          fMesh.position.copy(screen.position);
+          fMesh.position.y += fp.oy;
+          fMesh.quaternion.copy(screen.quaternion);
+          scene.add(fMesh);
+        }
+        // Side bars
+        for (const side of [-1, 1]) {
+          const sGeo = new THREE.BoxGeometry(0.12, screenH + 0.4, 0.2);
+          const sMat = new THREE.MeshStandardMaterial({
+            color: neonColor, emissive: neonColor, emissiveIntensity: 1.2,
+            transparent: true, opacity: 0.9,
+          });
+          const sMesh = new THREE.Mesh(sGeo, sMat);
+          sMesh.position.copy(screen.position);
+          sMesh.quaternion.copy(screen.quaternion);
+          // Offset in local X
+          const localOffset = new THREE.Vector3(side * (screenW / 2 + 0.06), 0, 0);
+          localOffset.applyQuaternion(screen.quaternion);
+          sMesh.position.add(localOffset);
+          scene.add(sMesh);
+        }
+
+        // Neon point light for ambient glow
+        const bbLight = new THREE.PointLight(neonColor, 0.8, 25);
+        bbLight.position.set(bx, poleH - 1, bz);
+        scene.add(bbLight);
+
+        // Holographic scanline effect — thin glowing bar that moves
+        const scanGeo = new THREE.BoxGeometry(screenW - 0.5, 0.08, 0.2);
+        const scanMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff, emissive: neonColor, emissiveIntensity: 2,
+          transparent: true, opacity: 0.6,
+        });
+        const scanLine = new THREE.Mesh(scanGeo, scanMat);
+        scanLine.position.copy(screen.position);
+        scanLine.quaternion.copy(screen.quaternion);
+        scene.add(scanLine);
+
+        // Second billboard per district — smaller, rotated differently
+        if (adsToShow.length > districts.length) {
+          const ad2 = adsToShow[(i + districts.length) % adsToShow.length];
+          const bb2Angle = bbAngle + Math.PI * 0.6;
+          const bb2x = d.center_x + Math.cos(bb2Angle) * (bbDist * 0.7);
+          const bb2z = d.center_z + Math.sin(bb2Angle) * (bbDist * 0.7);
+          const smallPoleH = 12;
+          const smallPoleGeo = new THREE.CylinderGeometry(0.15, 0.2, smallPoleH, 6);
+          const smallPole = new THREE.Mesh(smallPoleGeo, poleMat);
+          smallPole.position.set(bb2x, smallPoleH / 2, bb2z);
+          scene.add(smallPole);
+          const smallScreenGeo = new THREE.BoxGeometry(5, 3, 0.12);
+          const neon2 = NEON_COLORS[(i + 3) % NEON_COLORS.length];
+          const smallScreenMat = new THREE.MeshStandardMaterial({
+            color: 0x0a0a1a, emissive: neon2, emissiveIntensity: 0.2,
+            metalness: 0.6, roughness: 0.2,
+          });
+          const smallScreen = new THREE.Mesh(smallScreenGeo, smallScreenMat);
+          smallScreen.position.set(bb2x, smallPoleH - 1, bb2z);
+          smallScreen.lookAt(d.center_x, smallPoleH - 1, d.center_z);
+          scene.add(smallScreen);
+          const smallLight = new THREE.PointLight(neon2, 0.4, 15);
+          smallLight.position.set(bb2x, smallPoleH, bb2z);
+          scene.add(smallLight);
+        }
+
+        billboardMeshes.push({ screen, scanLine, neonColor, baseY: screen.position.y, screenH });
+      }
+
+      // ── Habitats from DB ──────────────────────────────────────────────
+      for (const hab of habitats) {
+        const hx = hab.position_x || (seededRandom() - 0.5) * 200;
+        const hz = hab.position_z || (seededRandom() - 0.5) * 200;
+        const hType = hab.habitat_type || 'shelter';
+        const hColor = hab.owner_agent ? (FACTION_COLORS[hab.district_id] || 0x888888) : 0x997744;
+        const hH = hType === 'tower' ? 12 : hType === 'compound' ? 6 : 4;
+        const hW = hType === 'compound' ? 6 : 3;
+        const habGeo = new THREE.BoxGeometry(hW, hH, hW);
+        const habMat = new THREE.MeshStandardMaterial({
+          color: darken(hColor, 0.5), emissive: hColor, emissiveIntensity: 0.1,
+          metalness: 0.3, roughness: 0.7,
+        });
+        const habMesh = new THREE.Mesh(habGeo, habMat);
+        habMesh.position.set(hx, hH / 2, hz);
+        habMesh.castShadow = true;
+        scene.add(habMesh);
+        // Habitat beacon
+        const beaconGeo = new THREE.SphereGeometry(0.4, 8, 8);
+        const beaconMat = new THREE.MeshStandardMaterial({ color: hColor, emissive: hColor, emissiveIntensity: 0.8 });
+        const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+        beacon.position.set(hx, hH + 0.6, hz);
+        scene.add(beacon);
+      }
+
       // ── Place agents ──────────────────────────────────────────────────
       for (let i = 0; i < agents.length; i++) {
         const agent = agents[i];
@@ -385,6 +565,16 @@ export default function World3DPage() {
 
         // Spire ring rotation
         ring.rotation.z = t * 0.3;
+
+        // Billboard scanline animation + neon pulse
+        for (const bb of billboardMeshes) {
+          // Scanline sweeps up and down
+          const scanY = bb.baseY + Math.sin(t * 1.5) * (bb.screenH / 2 - 0.2);
+          bb.scanLine.position.y = scanY;
+          // Pulse emissive intensity
+          const pulse = 0.1 + Math.sin(t * 2.5) * 0.08;
+          bb.screen.material.emissiveIntensity = pulse;
+        }
 
         // Walk agents
         for (let i = 0; i < agentMeshes.length; i++) {

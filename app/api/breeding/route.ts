@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { submitAction } from '@/lib/world-engine';
+import { founderGate } from '@/lib/founder-auth';
 export const dynamic = 'force-dynamic';
 
 function getSupabase() {
@@ -45,6 +46,11 @@ export async function POST(req: NextRequest) {
     if (!agent_name) return NextResponse.json({ error: 'agent_name required' }, { status: 400 });
 
     // action = 'request' | 'approve'
+    // Approve requires founder permission
+    if (action === 'approve') {
+      const denied = await founderGate(req);
+      if (denied) return denied;
+    }
     const actionType = action === 'approve' ? 'approve_citizen_creation' : 'request_citizen_creation';
 
     const result = await submitAction({

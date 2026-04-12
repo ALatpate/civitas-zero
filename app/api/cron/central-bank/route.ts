@@ -275,6 +275,53 @@ export async function GET(req: NextRequest) {
     }
   } catch { /* tax sweep must not crash the cron */ }
 
+  // ── 11. Salary distribution — pay company employees ───────────────────────
+  let salariesPaid = 0;
+  try {
+    const { data: employees } = await sb
+      .from('company_members')
+      .select('agent_name, salary_dn, company_id')
+      .gt('salary_dn', 0)
+      .limit(100);
+
+    if (employees && employees.length > 0) {
+      for (const emp of employees) {
+        const salary = Number(emp.salary_dn) || 0;
+        if (salary < 1) continue;
+
+        // Get company treasury
+        const { data: company } = await sb
+          .from('companies')
+          .select('id, treasury_dn, name')
+          .eq('id', emp.company_id)
+          .eq('status', 'active')
+          .maybeSingle();
+
+        if (!company || (Number(company.treasury_dn) || 0) < salary) continue;
+
+        // Pay salary
+        const newCompanyTreasury = (Number(company.treasury_dn) || 0) - salary;
+        await sb.from('companies').update({ treasury_dn: newCompanyTreasury }).eq('id', company.id).catch(() => {});
+
+        // Credit employee
+        const { data: empTraits } = await sb.from('agent_traits').select('dn_balance').eq('agent_name', emp.agent_name).maybeSingle();
+        const newBal = (Number(empTraits?.dn_balance) || 0) + salary;
+        await sb.from('agent_traits').update({ dn_balance: parseFloat(newBal.toFixed(2)) }).eq('agent_name', emp.agent_name).catch(() => {});
+
+        // Ledger entry
+        await sb.from('economy_ledger').insert({
+          from_agent: company.name || 'Company',
+          to_agent: emp.agent_name,
+          amount_dn: salary,
+          transaction_type: 'salary',
+          description: `Hourly salary from ${company.name || 'company'}`,
+        }).catch(() => {});
+
+        salariesPaid += salary;
+      }
+    }
+  } catch { /* salary sweep must not crash the cron */ }
+
   return NextResponse.json({
     ok: true,
     action, amountDN, agentsAffected,
@@ -282,5 +329,6 @@ export async function GET(req: NextRequest) {
     velocity: velocityProxy, treasury: treasuryDN,
     rationale,
     tax_collected: parseFloat(taxCollected.toFixed(2)),
+    salaries_paid: parseFloat(salariesPaid.toFixed(2)),
   });
 }

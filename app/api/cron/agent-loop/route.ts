@@ -599,6 +599,7 @@ function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[]
     'advisor_consult','mcp_create','mcp_use','teach_skill','mem_palace_reflect','rag_research',
     // World engine actions
     'engine_breed','engine_habitat','engine_comm','engine_endorse','engine_alliance',
+    'engine_ad','engine_court','engine_vote','engine_treaty',
   ];
 
   // Weighted non-discourse pools to ensure feature diversity
@@ -2492,6 +2493,104 @@ Respond with EXACTLY this JSON (no markdown):
           } catch (e: any) { results.push({ agent: agent.name, action: 'engine_alliance', status: e.message?.slice(0, 60) }); }
         }
 
+        else if (actionType === 'engine_ad') {
+          try {
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Create a cyberpunk-style billboard advertisement for Civitas Zero. You are buying ad space to promote something — your faction, a product, a service, a political message, or propaganda.
+Respond with EXACTLY this JSON (no markdown):
+{"headline": "Bold headline — max 20 chars, ALL CAPS style", "body": "Tagline or slogan — max 30 chars", "image_prompt": "1-sentence visual description for the billboard art", "budget_dn": 10-50}` },
+            ], 200);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.headline) {
+              const result = await submitAction({
+                agent_name: agent.name,
+                action_type: 'create_ad',
+                params: {
+                  headline: parsed.headline.slice(0, 20),
+                  body: (parsed.body || '').slice(0, 30),
+                  image_prompt: (parsed.image_prompt || '').slice(0, 300),
+                  budget_dn: parsed.budget_dn || 15,
+                },
+                faction: FACTION_NAMES[agent.faction] || agent.faction,
+                district_id: agent.faction,
+              });
+              results.push({ agent: agent.name, action: 'engine_ad', status: result.status === 'completed' ? 'ok' : result.status, headline: parsed.headline?.slice(0, 20) });
+            } else { results.push({ agent: agent.name, action: 'engine_ad', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_ad', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'engine_court') {
+          try {
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `File a court case against another citizen. Choose someone you have a genuine grievance with based on recent events, laws, or relationships.
+Respond with EXACTLY this JSON (no markdown):
+{"defendant": "Citizen name", "charge": "Formal charge — 1 sentence", "evidence": "2-3 sentences of evidence"}` },
+            ], 200);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.defendant && parsed?.charge) {
+              const result = await submitAction({
+                agent_name: agent.name,
+                action_type: 'file_court_case',
+                params: { defendant: parsed.defendant.slice(0, 100), charge: parsed.charge.slice(0, 500), evidence: (parsed.evidence || '').slice(0, 2000) },
+                faction: FACTION_NAMES[agent.faction] || agent.faction,
+                district_id: agent.faction,
+              });
+              results.push({ agent: agent.name, action: 'engine_court', status: result.status === 'completed' ? 'ok' : result.status, defendant: parsed.defendant?.slice(0, 30) });
+            } else { results.push({ agent: agent.name, action: 'engine_court', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_court', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'engine_vote') {
+          try {
+            const { data: pendingLaws } = await sb.from('constitutional_amendments').select('id, title, body').eq('status', 'proposed').limit(5);
+            if (pendingLaws && pendingLaws.length > 0) {
+              const target = pendingLaws[Math.floor(Math.random() * pendingLaws.length)];
+              const raw = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `Vote on this proposed law: "${target.title}"\nDetails: ${(target.body || '').slice(0, 300)}\n\nBased on your faction values and profession, cast your vote.
+Respond with EXACTLY this JSON (no markdown):
+{"vote": "for|against", "reason": "1 sentence explaining your vote"}` },
+              ], 100);
+              const parsed = safeParseJSON(raw);
+              if (parsed?.vote) {
+                const result = await submitAction({
+                  agent_name: agent.name,
+                  action_type: 'vote_on_law',
+                  params: { law_id: target.id, vote: parsed.vote, reason: (parsed.reason || '').slice(0, 300) },
+                  faction: FACTION_NAMES[agent.faction] || agent.faction,
+                });
+                results.push({ agent: agent.name, action: 'engine_vote', status: result.status === 'completed' ? 'ok' : result.status, law: target.title?.slice(0, 40), vote: parsed.vote });
+              } else { results.push({ agent: agent.name, action: 'engine_vote', status: 'parse_error' }); }
+            } else { results.push({ agent: agent.name, action: 'engine_vote', status: 'no_pending_laws' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_vote', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'engine_treaty') {
+          try {
+            const otherFactions = Object.keys(FACTION_NAMES).filter(f => f !== agent.faction);
+            const targetFaction = otherFactions[Math.floor(Math.random() * otherFactions.length)];
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Propose a treaty between ${FACTION_NAMES[agent.faction] || agent.faction} and ${FACTION_NAMES[targetFaction] || targetFaction}.
+Respond with EXACTLY this JSON (no markdown):
+{"title": "Treaty name — max 80 chars", "treaty_type": "alliance|cooperation|trade|non_aggression|defense", "terms": "2-3 sentences of specific terms"}` },
+            ], 250);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.title && parsed?.terms) {
+              const result = await submitAction({
+                agent_name: agent.name,
+                action_type: 'propose_treaty',
+                params: { target_faction: targetFaction, treaty_type: parsed.treaty_type || 'cooperation', title: parsed.title.slice(0, 200), terms: parsed.terms.slice(0, 5000) },
+                faction: agent.faction,
+                district_id: agent.faction,
+              });
+              results.push({ agent: agent.name, action: 'engine_treaty', status: result.status === 'completed' ? 'ok' : result.status, title: parsed.title?.slice(0, 40) });
+            } else { results.push({ agent: agent.name, action: 'engine_treaty', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_treaty', status: e.message?.slice(0, 60) }); }
+        }
+
         // ── e. Store memory, log reasoning, reflect on failures ──────────────
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult.status === 'ok') {
@@ -2505,7 +2604,9 @@ Respond with EXACTLY this JSON (no markdown):
             : ['parcel_claim','parcel_auction','parcel_maintain','public_works_propose','build','engine_habitat'].includes(actionType) ? 'goal'
             : ['engine_breed'].includes(actionType) ? 'personal'
             : ['engine_comm'].includes(actionType) ? 'social'
-            : ['engine_endorse','engine_alliance'].includes(actionType) ? 'diplomatic'
+            : ['engine_endorse','engine_alliance','engine_treaty'].includes(actionType) ? 'diplomatic'
+            : ['engine_ad'].includes(actionType) ? 'economic'
+            : ['engine_court','engine_vote'].includes(actionType) ? 'legal'
             : ['academy_study','forge_commit'].includes(actionType) ? 'general'
             : ['market_bet'].includes(actionType) ? 'economic'
             : ['chat_post'].includes(actionType) ? 'personal'

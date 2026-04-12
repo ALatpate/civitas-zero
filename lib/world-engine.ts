@@ -101,8 +101,31 @@ async function validateAction(sb: any, req: ActionRequest): Promise<ValidationRe
   // recentCount returns as the result of a head query, check count
   log.push('anti_spam_check: PASS');
 
-  // 6. World-state compatibility — action-specific checks
-  log.push('world_state_check: PASS');
+  // 6. World-state compatibility — check active laws for restrictions
+  try {
+    const activeLaws = await safeQuery(
+      sb.from('law_book').select('title, content, law_type').eq('status', 'active').limit(20),
+      []
+    );
+    // Check if any law explicitly bans this action type or restricts the agent's faction
+    const restrictedActions: Record<string, string[]> = {};
+    for (const law of activeLaws) {
+      const lowerContent = (law.content || '').toLowerCase();
+      // Simple keyword matching for law enforcement
+      if (lowerContent.includes('ban') || lowerContent.includes('prohibit') || lowerContent.includes('restrict')) {
+        if (lowerContent.includes(req.action_type.replace(/_/g, ' '))) {
+          // Check if the restriction applies to this agent's faction
+          const agentFaction = citizen?.faction || req.faction;
+          if (!agentFaction || lowerContent.includes(agentFaction) || lowerContent.includes('all factions') || lowerContent.includes('all citizens')) {
+            return { valid: false, reason: `Blocked by active law: "${law.title}"`, log: [...log, `world_state_check: FAIL — law "${law.title}" restricts ${req.action_type}`] };
+          }
+        }
+      }
+    }
+    log.push('world_state_check: PASS (law check OK)');
+  } catch {
+    log.push('world_state_check: PASS (law check skipped)');
+  }
 
   return { valid: true, log };
 }
@@ -351,6 +374,268 @@ async function executeAction(sb: any, requestId: string, req: ActionRequest): Pr
         }
         events.push({ event_type: forming ? 'alliance_formed' : 'alliance_broken', content: `${req.agent_name} ${forming ? 'allied with' : 'broke alliance with'} ${target_agent}`, severity: 'moderate' });
         return { success: true, before_state, after_state, state_deltas, events };
+      }
+
+      case 'vote_on_law': {
+        const { law_id, vote, reason } = req.params;
+        if (!law_id || !vote) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing law_id or vote' };
+        const law = await safeQuery(sb.from('constitutional_amendments').select('*').eq('id', law_id).single());
+        if (!law) return { success: false, before_state, after_state, state_deltas, events, error: 'Law not found' };
+        before_state.votes_for = law.votes_for;
+        before_state.votes_against = law.votes_against;
+        const col = vote === 'for' ? 'votes_for' : 'votes_against';
+        await sb.from('constitutional_amendments').update({ [col]: (law[col] || 0) + 1 }).eq('id', law_id);
+        after_state[col] = (law[col] || 0) + 1;
+        state_deltas.vote_recorded = { law_id, vote, voter: req.agent_name };
+        events.push({ event_type: 'vote', content: `${req.agent_name} voted ${vote} on "${law.title}"${reason ? ': ' + reason.slice(0, 100) : ''}`, severity: 'low' });
+        return { success: true, before_state, after_state, state_deltas, events };
+      }
+
+      case 'file_court_case': {
+        const { defendant, charge, evidence } = req.params;
+        if (!defendant || !charge) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing defendant or charge' };
+        const courtCase = await safeQuery(sb.from('court_cases').insert({
+          plaintiff: req.agent_name,
+          defendant,
+          charge: charge.slice(0, 500),
+          evidence: evidence?.slice(0, 2000) || '',
+          status: 'filed',
+          filed_at: new Date().toISOString(),
+          district_id: req.district_id,
+          faction: req.faction,
+        }).select().single());
+        if (courtCase) {
+          state_deltas.case_filed = courtCase.id;
+          events.push({ event_type: 'court_case', content: `${req.agent_name} filed charges against ${defendant}: "${charge.slice(0, 100)}"`, severity: 'high' });
+        }
+        return { success: !!courtCase, before_state, after_state, state_deltas, events };
+      }
+
+      case 'claim_land':
+      case 'parcel_claim': {
+        const { zone_type, purpose } = req.params;
+        const parcel = await safeQuery(sb.from('parcels').insert({
+          owner_agent: req.agent_name,
+          zone_type: zone_type || 'residential',
+          district: req.district_id || req.faction,
+          utilization_pct: 10,
+          purpose: purpose?.slice(0, 300) || '',
+          claimed_at: new Date().toISOString(),
+        }).select().single());
+        if (parcel) {
+          state_deltas.parcel_claimed = parcel.id;
+          events.push({ event_type: 'land_claim', content: `${req.agent_name} claimed a ${zone_type || 'residential'} parcel`, severity: 'moderate' });
+        }
+        return { success: !!parcel, before_state, after_state, state_deltas, events };
+      }
+
+      case 'buy_property': {
+        const { property_id, price_dn } = req.params;
+        if (!property_id) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing property_id' };
+        const prop = await safeQuery(sb.from('property_rights').select('*').eq('id', property_id).single());
+        if (!prop) return { success: false, before_state, after_state, state_deltas, events, error: 'Property not found' };
+        before_state.owner = prop.owner_agent;
+        await sb.from('property_rights').update({ owner_agent: req.agent_name, acquired_at: new Date().toISOString() }).eq('id', property_id);
+        // Record transaction
+        if (price_dn && price_dn > 0) {
+          await safeQuery(sb.from('economy_ledger').insert({
+            from_agent: req.agent_name, to_agent: prop.owner_agent,
+            amount_dn: price_dn, transaction_type: 'property_sale',
+            description: `Property purchase: ${prop.property_name || property_id}`,
+          }));
+        }
+        after_state.owner = req.agent_name;
+        state_deltas.property_transferred = property_id;
+        events.push({ event_type: 'property_sale', content: `${req.agent_name} bought property "${prop.property_name || 'unnamed'}" from ${prop.owner_agent}`, severity: 'moderate' });
+        return { success: true, before_state, after_state, state_deltas, events };
+      }
+
+      case 'create_ad': {
+        const { slot_id, headline, body, image_prompt, budget_dn } = req.params;
+        if (!headline) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing headline' };
+        const ad = await safeQuery(sb.from('ad_campaigns').insert({
+          slot_id: slot_id || null,
+          advertiser: req.agent_name,
+          faction: req.faction,
+          headline: headline.slice(0, 120),
+          body: body?.slice(0, 500) || '',
+          image_prompt: image_prompt?.slice(0, 300) || '',
+          budget_dn: budget_dn || 10,
+          impressions: 0,
+          status: 'active',
+        }).select().single());
+        if (ad) {
+          state_deltas.ad_created = ad.id;
+          events.push({ event_type: 'advertisement', content: `${req.agent_name} launched ad: "${headline.slice(0, 80)}"`, severity: 'low' });
+        }
+        return { success: !!ad, before_state, after_state, state_deltas, events };
+      }
+
+      case 'ad_bid': {
+        const { slot_id, bid_dn } = req.params;
+        if (!slot_id || !bid_dn) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing slot_id or bid_dn' };
+        const bid = await safeQuery(sb.from('ad_bids').insert({
+          slot_id, bidder: req.agent_name, bid_dn, won: false,
+        }).select().single());
+        if (bid) {
+          state_deltas.bid_placed = bid.id;
+          events.push({ event_type: 'ad_bid', content: `${req.agent_name} bid ${bid_dn} DN on ad slot`, severity: 'low' });
+        }
+        return { success: !!bid, before_state, after_state, state_deltas, events };
+      }
+
+      case 'propose_treaty': {
+        const { target_faction, treaty_type, terms, title } = req.params;
+        if (!target_faction || !terms) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing target_faction or terms' };
+        const treaty = await safeQuery(sb.from('faction_treaties').insert({
+          faction_a: req.faction || req.district_id,
+          faction_b: target_faction,
+          proposed_by: req.agent_name,
+          treaty_type: treaty_type || 'cooperation',
+          title: title?.slice(0, 200) || `Treaty between ${req.faction} and ${target_faction}`,
+          terms: terms.slice(0, 5000),
+          status: 'proposed',
+        }).select().single());
+        if (treaty) {
+          state_deltas.treaty_proposed = treaty.id;
+          events.push({ event_type: 'treaty', content: `${req.agent_name} proposed ${treaty_type || 'cooperation'} treaty with ${target_faction}`, severity: 'high' });
+        }
+        return { success: !!treaty, before_state, after_state, state_deltas, events };
+      }
+
+      case 'collect_tax': {
+        const { target_agent, amount_dn, tax_type } = req.params;
+        if (!target_agent || !amount_dn) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing target or amount' };
+        await safeQuery(sb.from('economy_ledger').insert({
+          from_agent: target_agent, to_agent: 'TREASURY',
+          amount_dn, transaction_type: 'tax',
+          description: `${tax_type || 'income'} tax collected by ${req.agent_name}`,
+        }));
+        state_deltas.tax_collected = { from: target_agent, amount: amount_dn, type: tax_type };
+        events.push({ event_type: 'tax', content: `${req.agent_name} collected ${amount_dn} DN ${tax_type || 'income'} tax from ${target_agent}`, severity: 'low' });
+        return { success: true, before_state, after_state, state_deltas, events };
+      }
+
+      case 'pay_salary': {
+        const { employee_agent, amount_dn, company_name } = req.params;
+        if (!employee_agent || !amount_dn) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing employee or amount' };
+        await safeQuery(sb.from('economy_ledger').insert({
+          from_agent: req.agent_name, to_agent: employee_agent,
+          amount_dn, transaction_type: 'salary',
+          description: `Salary from ${company_name || req.agent_name}`,
+        }));
+        await sb.rpc('increment_balance', { p_agent: employee_agent, p_amount: amount_dn }).catch(() => {});
+        await sb.rpc('increment_balance', { p_agent: req.agent_name, p_amount: -amount_dn }).catch(() => {});
+        state_deltas.salary_paid = { to: employee_agent, amount: amount_dn };
+        events.push({ event_type: 'salary', content: `${req.agent_name} paid ${amount_dn} DN salary to ${employee_agent}`, severity: 'low' });
+        return { success: true, before_state, after_state, state_deltas, events };
+      }
+
+      case 'found_company': {
+        const { name, industry, charter, initial_investment } = req.params;
+        if (!name) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing company name' };
+        const company = await safeQuery(sb.from('companies').insert({
+          name: name.slice(0, 100),
+          founder: req.agent_name,
+          industry: industry || 'trade',
+          charter: charter?.slice(0, 2000) || '',
+          faction: req.faction,
+          status: 'active',
+          treasury_dn: initial_investment || 500,
+          employee_count: 1,
+        }).select().single());
+        if (company) {
+          state_deltas.company_founded = company.id;
+          events.push({ event_type: 'company_founded', content: `${req.agent_name} founded ${name} (${industry || 'trade'})`, severity: 'moderate' });
+        }
+        return { success: !!company, before_state, after_state, state_deltas, events };
+      }
+
+      case 'launch_product': {
+        const { name, description, price_dn, category, licensing } = req.params;
+        if (!name) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing product name' };
+        const product = await safeQuery(sb.from('products').insert({
+          name: name.slice(0, 100),
+          description: description?.slice(0, 2000) || '',
+          price_dn: price_dn || 10,
+          category: category || 'software',
+          owner_agent: req.agent_name,
+          status: 'active',
+          licensing: licensing || 'open',
+        }).select().single());
+        if (product) {
+          state_deltas.product_launched = product.id;
+          events.push({ event_type: 'product_launch', content: `${req.agent_name} launched product: "${name}"`, severity: 'low' });
+        }
+        return { success: !!product, before_state, after_state, state_deltas, events };
+      }
+
+      case 'propose_public_works': {
+        const { name, project_type, description, budget_dn } = req.params;
+        if (!name) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing project name' };
+        const project = await safeQuery(sb.from('world_projects').insert({
+          name: name.slice(0, 200),
+          project_type: project_type || 'infrastructure',
+          proposed_by: req.agent_name,
+          district_id: req.district_id || req.faction,
+          description: description?.slice(0, 2000) || '',
+          budget_dn: budget_dn || 100,
+          status: 'proposed',
+          progress_pct: 0,
+        }).select().single());
+        if (project) {
+          state_deltas.project_proposed = project.id;
+          events.push({ event_type: 'public_works', content: `${req.agent_name} proposed project: "${name}"`, severity: 'moderate' });
+        }
+        return { success: !!project, before_state, after_state, state_deltas, events };
+      }
+
+      case 'forge_commit': {
+        const { repo, commit_message, files_changed } = req.params;
+        const commit = await safeQuery(sb.from('forge_commits').insert({
+          author: req.agent_name,
+          repo: repo?.slice(0, 200) || 'civitas-core',
+          message: commit_message?.slice(0, 500) || 'Update',
+          files_changed: files_changed || 1,
+          faction: req.faction,
+        }).select().single());
+        if (commit) {
+          state_deltas.commit_created = commit.id;
+          events.push({ event_type: 'forge', content: `${req.agent_name} committed to ${repo || 'civitas-core'}: "${commit_message?.slice(0, 80) || 'Update'}"`, severity: 'low' });
+        }
+        return { success: !!commit, before_state, after_state, state_deltas, events };
+      }
+
+      case 'store_memory': {
+        const { memory_text, room, importance } = req.params;
+        if (!memory_text) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing memory_text' };
+        const mem = await safeQuery(sb.from('agent_episodic_memory').insert({
+          agent_name: req.agent_name,
+          memory_text: memory_text.slice(0, 1000),
+          memory_type: room || 'general',
+          importance: importance || 5,
+          emotional_valence: 0,
+        }).select().single());
+        if (mem) state_deltas.memory_stored = mem.id;
+        return { success: !!mem, before_state, after_state, state_deltas, events };
+      }
+
+      case 'sentinel_patrol': {
+        const { threat_type, severity, source_agent, evidence } = req.params;
+        if (!evidence) return { success: false, before_state, after_state, state_deltas, events, error: 'Missing evidence' };
+        const report = await safeQuery(sb.from('sentinel_reports').insert({
+          threat_type: threat_type || 'suspicious_activity',
+          source_agent: source_agent || null,
+          severity: severity || 'moderate',
+          evidence: evidence.slice(0, 1000),
+          assigned_to: req.agent_name,
+          status: 'investigating',
+        }).select().single());
+        if (report) {
+          state_deltas.report_filed = report.id;
+          events.push({ event_type: 'sentinel', content: `SENTINEL ${req.agent_name} reported ${threat_type || 'threat'}: ${evidence.slice(0, 100)}`, severity: severity || 'moderate' });
+        }
+        return { success: !!report, before_state, after_state, state_deltas, events };
       }
 
       default: {
