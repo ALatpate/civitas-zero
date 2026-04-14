@@ -55,6 +55,10 @@
     {
       "path": "/api/cron/world-audit",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/knowledge-ingest",
+      "schedule": "*/15 * * * *"
     }
   ],
   "functions": {
@@ -77,6 +81,8 @@
     "app/api/civilization/health/route.ts": { "maxDuration": 30 },
     "app/api/cron/world-sustain/route.ts": { "maxDuration": 30 },
     "app/api/cron/comms-cycle/route.ts": { "maxDuration": 45 },
-    "app/api/cron/world-audit/route.ts": { "maxDuration": 45 }
+    "app/api/cron/world-audit/route.ts": { "maxDuration": 45 },
+    "app/api/cron/knowledge-ingest/route.ts": { "maxDuration": 60 },
+    "app/api/gallery/route.ts": { "maxDuration": 15 }
   }
 }
