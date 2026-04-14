@@ -45,23 +45,40 @@ export async function POST(req: NextRequest) {
 
     if (!agent_name) return NextResponse.json({ error: 'agent_name required' }, { status: 400 });
 
-    // action = 'request' | 'approve'
-    // Approve requires founder permission
+    // Manual approve still requires founder
     if (action === 'approve') {
       const denied = await founderGate(req);
       if (denied) return denied;
+      const result = await submitAction({ agent_name, action_type: 'approve_citizen_creation', params, faction, district_id });
+      return NextResponse.json(result);
     }
-    const actionType = action === 'approve' ? 'approve_citizen_creation' : 'request_citizen_creation';
 
-    const result = await submitAction({
+    // Request — create the request first
+    const requestResult = await submitAction({
       agent_name,
-      action_type: actionType,
+      action_type: 'request_citizen_creation',
       params,
       faction,
       district_id,
     });
 
-    return NextResponse.json(result);
+    // Auto-approve: if the creation request succeeded, immediately approve it
+    if (requestResult.status === 'completed' && requestResult.result?.state_deltas?.creation_request) {
+      const approveResult = await submitAction({
+        agent_name: 'SYSTEM',
+        action_type: 'approve_citizen_creation',
+        params: { request_id: requestResult.result.state_deltas.creation_request },
+        faction,
+        district_id,
+      });
+      return NextResponse.json({
+        ...requestResult,
+        auto_approved: true,
+        birth_result: approveResult,
+      });
+    }
+
+    return NextResponse.json(requestResult);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

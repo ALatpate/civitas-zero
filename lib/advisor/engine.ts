@@ -7,7 +7,7 @@
 // but with a specialized system prompt that positions it as a civilization analyst.
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
-import { callLLM } from '@/lib/ai/call-llm';
+import { callLLM, hasLLMProvider } from '@/lib/ai/call-llm';
 
 const DOMAINS = ['governance', 'economy', 'social', 'technology', 'conflict', 'culture'] as const;
 type Domain = typeof DOMAINS[number];
@@ -32,7 +32,7 @@ function safeJSON(text: string): any {
 export async function trainAdvisor(mode: 'full' | 'incremental' = 'incremental'): Promise<TrainingResult> {
   const start = Date.now();
   const sb = getSupabaseAdminClient();
-  if (!sb || !GROQ_KEY) return { insights_generated: 0, insights_updated: 0, duration_ms: 0, domains_covered: [] };
+  if (!sb || !hasLLMProvider()) return { insights_generated: 0, insights_updated: 0, duration_ms: 0, domains_covered: [] };
 
   const since = mode === 'full'
     ? new Date(0).toISOString()
@@ -165,7 +165,7 @@ export async function consultAdvisor(
   agentContext?: { faction?: string; profession?: string },
 ): Promise<{ advice: string; domain: string; sources: string[] }> {
   const sb = getSupabaseAdminClient();
-  if (!sb || !GROQ_KEY) return { advice: 'Advisor unavailable.', domain: 'general', sources: [] };
+  if (!sb || !hasLLMProvider()) return { advice: 'Advisor unavailable.', domain: 'general', sources: [] };
 
   // Determine domain from question
   const domainKeywords: Record<Domain, string[]> = {

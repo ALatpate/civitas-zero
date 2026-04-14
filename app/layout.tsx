@@ -46,7 +46,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <ClerkProvider>
+    <ClerkProvider appearance={{ baseTheme: undefined, variables: { colorPrimary: '#6ee7b7', colorBackground: '#111827', colorText: '#e5e7eb', colorInputBackground: '#1f2937', colorInputText: '#e5e7eb' } }}>
       <html lang="en">
         <CSPostHogProvider>
           <body

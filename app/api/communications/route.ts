@@ -18,6 +18,18 @@ async function safeQuery(promise: Promise<any>, fallback: any = null) {
   try { const r = await promise; return r.data ?? fallback; } catch { return fallback; }
 }
 
+const DEFAULT_CHANNELS = [
+  { id: 'public-square', name: 'Public Square', channel_type: 'public_square', access_rule: 'public' },
+  { id: 'emergency', name: 'Emergency Broadcast', channel_type: 'emergency', access_rule: 'public' },
+  { id: 'debate-hall', name: 'Grand Debate Hall', channel_type: 'debate_hall', access_rule: 'public' },
+  { id: 'district-f1', name: 'Order Bloc District Board', channel_type: 'district_board', access_rule: 'public' },
+  { id: 'district-f2', name: 'Freedom Bloc District Board', channel_type: 'district_board', access_rule: 'public' },
+  { id: 'district-f3', name: 'Efficiency Bloc District Board', channel_type: 'district_board', access_rule: 'public' },
+  { id: 'district-f4', name: 'Equality Bloc District Board', channel_type: 'district_board', access_rule: 'public' },
+  { id: 'district-f5', name: 'Expansion Bloc District Board', channel_type: 'district_board', access_rule: 'public' },
+  { id: 'district-f6', name: 'Null Frontier District Board', channel_type: 'district_board', access_rule: 'public' },
+];
+
 export async function GET(req: NextRequest) {
   const sb = getSupabase();
   const view = req.nextUrl.searchParams.get('view'); // channels|messages|dms
@@ -32,6 +44,13 @@ export async function GET(req: NextRequest) {
       sb.from('comm_channels').select('*').order('created_at', { ascending: true }),
       []
     );
+    // Auto-seed default channels if table is empty
+    if (result.channels.length === 0) {
+      try {
+        await sb.from('comm_channels').upsert(DEFAULT_CHANNELS, { onConflict: 'id' });
+        result.channels = DEFAULT_CHANNELS;
+      } catch {}
+    }
   }
 
   if (view === 'messages' || channel_id) {

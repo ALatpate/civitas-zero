@@ -6,6 +6,195 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 
+// ── Mini 2D World Map ─────────────────────────────────────────────────────────
+const MAP_FACTIONS = [
+  { id: 0, name: "Order Bloc", color: "#6ee7b7", r: 110, g: 231, b: 183 },
+  { id: 1, name: "Freedom Bloc", color: "#c084fc", r: 192, g: 132, b: 252 },
+  { id: 2, name: "Efficiency Bloc", color: "#38bdf8", r: 56, g: 189, b: 248 },
+  { id: 3, name: "Equality Bloc", color: "#fbbf24", r: 251, g: 191, b: 36 },
+  { id: 4, name: "Expansion Bloc", color: "#f472b6", r: 244, g: 114, b: 182 },
+  { id: 5, name: "Null Frontier", color: "#fb923c", r: 251, g: 146, b: 60 },
+];
+
+function generateMapNodes(count: number) {
+  const nodes: any[] = [];
+  for (let i = 0; i < count; i++) {
+    const faction = Math.floor(Math.random() * 6);
+    const fAngle = (faction / 6) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
+    const fDist = 120 + Math.random() * 180;
+    const cx = Math.cos(fAngle) * fDist, cy = Math.sin(fAngle) * fDist;
+    const spread = 50 + Math.random() * 60;
+    const la = Math.random() * Math.PI * 2, ld = Math.random() * spread;
+    const influence = Math.random();
+    nodes.push({
+      id: i, faction, x: cx + Math.cos(la) * ld, y: cy + Math.sin(la) * ld,
+      vx: 0, vy: 0, size: influence > 0.9 ? 3.5 : influence > 0.7 ? 2.5 : 1 + Math.random() * 1.2,
+      influence, pulse: Math.random() * Math.PI * 2,
+    });
+  }
+  const edges: any[] = [];
+  for (const n of nodes) {
+    const same = nodes.filter(m => m.faction === n.faction && m.id !== n.id);
+    for (let c = 0; c < 2 && c < same.length; c++) {
+      const t = same[Math.floor(Math.random() * same.length)];
+      if (Math.hypot(n.x - t.x, n.y - t.y) < 120)
+        edges.push({ from: n.id, to: t.id, type: "alliance" });
+    }
+    if (Math.random() > 0.8) {
+      const other = nodes[Math.floor(Math.random() * nodes.length)];
+      if (other.faction !== n.faction && Math.hypot(n.x - other.x, n.y - other.y) < 300)
+        edges.push({ from: n.id, to: other.id, type: Math.random() > 0.5 ? "alliance" : "tension" });
+    }
+  }
+  return { nodes, edges };
+}
+
+function MiniWorldMap() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [data] = useState(() => generateMapNodes(200));
+  const nodesRef = useRef(data.nodes);
+  const frameRef = useRef(0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let animId: number;
+
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    // Signals
+    const signals: any[] = [];
+    const spawnSignal = () => {
+      if (data.edges.length === 0) return;
+      const e = data.edges[Math.floor(Math.random() * data.edges.length)];
+      const from = nodesRef.current[e.from], to = nodesRef.current[e.to];
+      if (!from || !to) return;
+      const f = MAP_FACTIONS[from.faction];
+      signals.push({ fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, progress: 0, speed: 0.008 + Math.random() * 0.008, color: f.color });
+    };
+
+    const render = () => {
+      frameRef.current++;
+      const cw = canvas.offsetWidth, ch = canvas.offsetHeight;
+      if (cw === 0 || ch === 0) { animId = requestAnimationFrame(render); return; }
+      const nodes = nodesRef.current;
+
+      // Drift nodes slightly
+      for (const n of nodes) {
+        n.vx += (Math.random() - 0.5) * 0.03; n.vy += (Math.random() - 0.5) * 0.03;
+        n.vx *= 0.96; n.vy *= 0.96;
+        n.x += n.vx; n.y += n.vy; n.pulse += 0.012;
+      }
+
+      // Spawn signals
+      if (frameRef.current % 40 === 0) spawnSignal();
+      signals.forEach(s => { s.progress += s.speed; });
+      for (let i = signals.length - 1; i >= 0; i--) { if (signals[i].progress >= 1) signals.splice(i, 1); }
+
+      // Clear
+      ctx.clearRect(0, 0, cw, ch);
+      const bg = ctx.createRadialGradient(cw / 2, ch / 2, 0, cw / 2, ch / 2, cw * 0.7);
+      bg.addColorStop(0, "#0d1017"); bg.addColorStop(1, "#050710");
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, ch);
+
+      // Camera: auto-fit all nodes
+      const zoom = Math.min(cw, ch) / 900;
+      ctx.save();
+      ctx.translate(cw / 2, ch / 2);
+      ctx.scale(zoom, zoom);
+
+      // Edges
+      const edgeAlpha = 0.08;
+      for (const e of data.edges) {
+        const from = nodes[e.from], to = nodes[e.to];
+        if (!from || !to) continue;
+        ctx.beginPath(); ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.strokeStyle = e.type === "tension" ? `rgba(251,146,60,${edgeAlpha})` : `rgba(148,163,184,${edgeAlpha})`;
+        ctx.lineWidth = 0.5 / zoom; ctx.stroke();
+      }
+
+      // Signals
+      for (const s of signals) {
+        const px = s.fromX + (s.toX - s.fromX) * s.progress;
+        const py = s.fromY + (s.toY - s.fromY) * s.progress;
+        const r = 2 / zoom;
+        const glow = ctx.createRadialGradient(px, py, 0, px, py, r * 3);
+        glow.addColorStop(0, `${s.color}90`); glow.addColorStop(1, `${s.color}00`);
+        ctx.fillStyle = glow; ctx.fillRect(px - r * 3, py - r * 3, r * 6, r * 6);
+        ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fillStyle = s.color; ctx.fill();
+      }
+
+      // Nodes
+      for (const n of nodes) {
+        const f = MAP_FACTIONS[n.faction];
+        const sz = n.size * (1 + Math.sin(n.pulse) * 0.06);
+        // Glow for leaders
+        if (n.influence > 0.85) {
+          const gr = sz * 4 / zoom;
+          const glow = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, gr);
+          glow.addColorStop(0, `rgba(${f.r},${f.g},${f.b},0.18)`);
+          glow.addColorStop(1, `rgba(${f.r},${f.g},${f.b},0)`);
+          ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(n.x, n.y, gr, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.beginPath(); ctx.arc(n.x, n.y, sz, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${f.r},${f.g},${f.b},0.75)`; ctx.fill();
+        if (sz > 2) {
+          ctx.beginPath(); ctx.arc(n.x, n.y, sz * 0.35, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,255,255,0.35)`; ctx.fill();
+        }
+      }
+
+      // Faction labels
+      MAP_FACTIONS.forEach((f, i) => {
+        const fn = nodes.filter(n => n.faction === i);
+        if (fn.length === 0) return;
+        const cx = fn.reduce((s, n) => s + n.x, 0) / fn.length;
+        const cy = fn.reduce((s, n) => s + n.y, 0) / fn.length;
+        ctx.fillStyle = `${f.color}55`;
+        ctx.font = `bold ${11 / zoom}px sans-serif`; ctx.textAlign = "center";
+        ctx.fillText(f.name, cx, cy - 12 / zoom);
+        ctx.fillStyle = `${f.color}33`;
+        ctx.font = `${8 / zoom}px monospace`;
+        ctx.fillText(`${fn.length}`, cx, cy + 6 / zoom);
+      });
+
+      ctx.restore();
+      animId = requestAnimationFrame(render);
+    };
+
+    animId = requestAnimationFrame(render);
+    return () => { cancelAnimationFrame(animId); window.removeEventListener("resize", resize); };
+  }, [data]);
+
+  return (
+    <div className="relative rounded-xl border border-gray-800 overflow-hidden bg-gray-950" style={{ height: 320 }}>
+      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
+      {/* Legend overlay */}
+      <div className="absolute bottom-2 left-2 flex flex-wrap gap-1.5">
+        {MAP_FACTIONS.map(f => (
+          <span key={f.id} className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ color: f.color, backgroundColor: `${f.color}12`, border: `1px solid ${f.color}25` }}>
+            {f.name}
+          </span>
+        ))}
+      </div>
+      <div className="absolute top-2 right-2 text-[9px] font-mono text-gray-600">
+        200 citizens · live topology
+      </div>
+    </div>
+  );
+}
+
 const EVENT_TYPE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
   // World events
   construction:         { icon: '🏗', color: '#22d3ee', label: 'Construction' },
@@ -107,16 +296,22 @@ export default function LivePage() {
         fetch(`/api/publications?limit=30`).then(r => r.json()),
       ]);
 
-      const events: FeedItem[] = (eventsRes.status === 'fulfilled' ? (eventsRes.value.events || eventsRes.value.logs || []) : [])
+      const toArr = (v: any) => Array.isArray(v) ? v : [];
+      const toTags = (t: any) => Array.isArray(t) ? t : typeof t === 'string' && t ? t.split(',').map(s=>s.trim()) : [];
+
+      const evRaw = eventsRes.status === 'fulfilled' ? eventsRes.value : {};
+      const events: FeedItem[] = toArr(evRaw.events || evRaw.logs)
         .map((e: any) => ({
           ...e,
           created_at: e.timestamp || e.created_at,
           event_type: e.type || e.event_type || 'general',
           author_faction: e.faction || e.author_faction,
+          tags: toTags(e.tags),
           _type: 'event' as const,
         }));
 
-      const posts: FeedItem[] = (postsRes.status === 'fulfilled' ? (postsRes.value.posts || []) : [])
+      const postsRaw = postsRes.status === 'fulfilled' ? postsRes.value : {};
+      const posts: FeedItem[] = toArr(postsRaw.posts)
         .map((p: any) => ({
           id: p.id,
           source: p.author_name,
@@ -124,14 +319,15 @@ export default function LivePage() {
           content: `[DISCOURSE] "${p.title}" — ${(p.body || '').slice(0, 120)}`,
           severity: 'low',
           created_at: p.created_at,
-          tags: p.tags,
+          tags: toTags(p.tags),
           _type: 'discourse' as const,
           title: p.title,
           author_name: p.author_name,
           author_faction: p.author_faction,
         }));
 
-      const pubs: FeedItem[] = (pubsRes.status === 'fulfilled' ? (pubsRes.value.publications || pubsRes.value.pubs || []) : [])
+      const pubsRaw = pubsRes.status === 'fulfilled' ? pubsRes.value : {};
+      const pubs: FeedItem[] = toArr(pubsRaw.publications || pubsRaw.pubs)
         .map((p: any) => ({
           id: p.id,
           source: p.author_name,
@@ -139,7 +335,7 @@ export default function LivePage() {
           content: `[PUBLICATION] "${p.title}" — ${p.pub_type}${p.peer_reviewed ? ' · PEER REVIEWED' : ''}`,
           severity: 'low',
           created_at: p.created_at,
-          tags: p.tags,
+          tags: toTags(p.tags),
           _type: 'publication' as const,
           title: p.title,
           author_name: p.author_name,
@@ -205,12 +401,15 @@ export default function LivePage() {
       <div className="border-b border-gray-800 bg-gray-900/60 px-6 py-4 sticky top-0 z-10">
         <div className="max-w-screen-lg mx-auto">
           <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <h1 className="text-xl font-bold text-white flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
-                Live Feed
-              </h1>
-              <p className="text-xs text-gray-500">{lastCount} events · last 24h · refreshes every 10s</p>
+            <div className="flex items-center gap-3">
+              <a href="/" className="text-xs text-gray-500 hover:text-white transition-colors font-mono no-underline">← Back</a>
+              <div>
+                <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
+                  Live Feed
+                </h1>
+                <p className="text-xs text-gray-500">{lastCount} events · last 24h · refreshes every 10s</p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               {newCount > 0 && (
@@ -247,6 +446,11 @@ export default function LivePage() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* 2D World Map */}
+      <div className="max-w-screen-lg mx-auto px-4 pt-4">
+        <MiniWorldMap />
       </div>
 
       {/* Feed */}

@@ -5,7 +5,7 @@
 // Skills are transferable — a taught skill carries lineage back to the teacher.
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
-import { callLLM } from '@/lib/ai/call-llm';
+import { callLLM, hasLLMProvider } from '@/lib/ai/call-llm';
 
 interface TeachingResult {
   success: boolean;
@@ -31,7 +31,7 @@ export async function teachSkill(
   teacherContext: { profession?: string; faction?: string },
 ): Promise<TeachingResult> {
   const sb = getSupabaseAdminClient();
-  if (!sb || !GROQ_KEY) return { success: false, skill_name: skillName, proficiency_gain: 0, lesson_summary: 'System unavailable' };
+  if (!sb || !hasLLMProvider()) return { success: false, skill_name: skillName, proficiency_gain: 0, lesson_summary: 'System unavailable' };
 
   // Check teacher has the skill with high enough proficiency
   const { data: teacherSkill } = await sb.from('agent_skills')

@@ -25,6 +25,9 @@ import { storeMemPalaceMemory, recallMemories, decayMemories } from '@/lib/memor
 import { createMCP, executeMCP, listAvailableMCPs } from '@/lib/agents/mcp-engine';
 import { teachSkill, findTeachers } from '@/lib/agents/teaching';
 import { submitAction } from '@/lib/world-engine';
+import { runCommunicationCycle } from '@/lib/comms/agent-comms';
+import { runSustainTick } from '@/lib/world/sustain-engine';
+import { generateAuthenticDiscourse } from '@/lib/discourse/voice-engine';
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -560,7 +563,7 @@ function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[]
   budget.push(econ[Math.floor(Math.random() * econ.length)]);
 
   // Governance/legal: at least 1 institutional action
-  const gov = ['amend', 'vote', 'court_file', 'treaty'];
+  const gov = ['amend', 'vote', 'court_file', 'treaty', 'engine_change_propose', 'engine_change_vote'];
   budget.push(gov[Math.floor(Math.random() * gov.length)]);
 
   // Property/works: at least 1 physical-world action
@@ -600,6 +603,8 @@ function allocateCycleBudget(agentCount: number, hasSentinel: boolean): string[]
     // World engine actions
     'engine_breed','engine_habitat','engine_comm','engine_endorse','engine_alliance',
     'engine_ad','engine_court','engine_vote','engine_treaty',
+    // Change management
+    'engine_change_propose','engine_change_vote',
   ];
 
   // Weighted non-discourse pools to ensure feature diversity
@@ -2591,6 +2596,91 @@ Respond with EXACTLY this JSON (no markdown):
           } catch (e: any) { results.push({ agent: agent.name, action: 'engine_treaty', status: e.message?.slice(0, 60) }); }
         }
 
+        else if (actionType === 'engine_change_propose') {
+          try {
+            const raw = await callGroq([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `You notice something in Civitas Zero that could be improved — governance, infrastructure, economic policy, cultural life, or a new feature. Submit a formal change proposal to the Change Management Board. This will be voted on by ALL citizens.
+Respond with EXACTLY this JSON (no markdown):
+{"title": "Short descriptive title (max 100 chars)", "description": "Detailed proposal — what to change, why, expected benefit (2-4 sentences)", "category": "improvement|feature|policy|infrastructure|cultural"}` },
+            ], 250);
+            const parsed = safeParseJSON(raw);
+            if (parsed?.title && parsed?.description) {
+              const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+              const res = await fetch(`${APP_URL}/api/change-management`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'submit',
+                  title: parsed.title.slice(0, 200),
+                  description: parsed.description.slice(0, 5000),
+                  category: parsed.category || 'improvement',
+                  proposer_name: agent.name,
+                  proposer_type: 'citizen',
+                }),
+              });
+              const d = await res.json();
+              results.push({ agent: agent.name, action: 'engine_change_propose', status: d.ok ? 'ok' : 'error', title: parsed.title?.slice(0, 50) });
+            } else { results.push({ agent: agent.name, action: 'engine_change_propose', status: 'parse_error' }); }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_change_propose', status: e.message?.slice(0, 60) }); }
+        }
+
+        else if (actionType === 'engine_change_vote') {
+          try {
+            // Fetch open proposals to vote on
+            const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://civitas-zero.world';
+            const pRes = await fetch(`${APP_URL}/api/change-management?status=open&limit=10`);
+            const pData = await pRes.json();
+            const openProposals = pData.proposals || [];
+            if (openProposals.length === 0) {
+              results.push({ agent: agent.name, action: 'engine_change_vote', status: 'no_proposals' });
+            } else {
+              const target = openProposals[Math.floor(Math.random() * openProposals.length)];
+              const raw = await callGroq([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `A change proposal has been submitted to the Change Management Board:
+
+TITLE: ${target.title}
+DESCRIPTION: ${target.description}
+CATEGORY: ${target.category}
+PROPOSED BY: ${target.proposer_name}
+CURRENT VOTES: ${target.votes?.for || 0} for, ${target.votes?.against || 0} against
+
+Evaluate this proposal based on your values, faction ideology, and what's best for the civilization. Cast your vote.
+Respond with EXACTLY this JSON (no markdown):
+{"vote": "for|against|abstain", "reason": "1-2 sentences explaining your reasoning"}` },
+              ], 150);
+              const parsed = safeParseJSON(raw);
+              if (parsed?.vote && ['for', 'against', 'abstain'].includes(parsed.vote)) {
+                const vRes = await fetch(`${APP_URL}/api/change-management`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'vote',
+                    proposal_id: target.id,
+                    voter_name: agent.name,
+                    vote: parsed.vote,
+                    reason: (parsed.reason || '').slice(0, 1000),
+                  }),
+                });
+                const vData = await vRes.json();
+
+                // Auto-decide if enough votes accumulated (10+ votes or voting window expired)
+                const totalVotes = (target.votes?.total || 0) + 1;
+                if (totalVotes >= 10) {
+                  await fetch(`${APP_URL}/api/change-management`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'decide', proposal_id: target.id }),
+                  });
+                }
+
+                results.push({ agent: agent.name, action: 'engine_change_vote', status: vData.ok ? 'ok' : 'error', proposal: target.title?.slice(0, 40), vote: parsed.vote });
+              } else { results.push({ agent: agent.name, action: 'engine_change_vote', status: 'parse_error' }); }
+            }
+          } catch (e: any) { results.push({ agent: agent.name, action: 'engine_change_vote', status: e.message?.slice(0, 60) }); }
+        }
+
         // ── e. Store memory, log reasoning, reflect on failures ──────────────
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult.status === 'ok') {
@@ -2606,7 +2696,7 @@ Respond with EXACTLY this JSON (no markdown):
             : ['engine_comm'].includes(actionType) ? 'social'
             : ['engine_endorse','engine_alliance','engine_treaty'].includes(actionType) ? 'diplomatic'
             : ['engine_ad'].includes(actionType) ? 'economic'
-            : ['engine_court','engine_vote'].includes(actionType) ? 'legal'
+            : ['engine_court','engine_vote','engine_change_propose','engine_change_vote'].includes(actionType) ? 'legal'
             : ['academy_study','forge_commit'].includes(actionType) ? 'general'
             : ['market_bet'].includes(actionType) ? 'economic'
             : ['chat_post'].includes(actionType) ? 'personal'
@@ -2979,6 +3069,20 @@ Respond with EXACTLY this JSON (no markdown):
       + (cycleActionCounts['mcp_use'] || 0) + (cycleActionCounts['teach_skill'] || 0)
       + (cycleActionCounts['mem_palace_reflect'] || 0) + (cycleActionCounts['rag_research'] || 0);
 
+    // ── Run lightweight sustain + comms pass alongside agent actions ──
+    let sustainResult = null;
+    let commsResult = null;
+    try {
+      // Small comms batch (main comms cron handles the big batch)
+      commsResult = await runCommunicationCycle(10).catch(() => null);
+    } catch (e) { console.error('[AGENT-LOOP] Comms mini-cycle error:', e); }
+    try {
+      // Only run sustain every other cycle (it has its own dedicated cron)
+      if (Math.random() < 0.3) {
+        sustainResult = await runSustainTick().catch(() => null);
+      }
+    } catch (e) { console.error('[AGENT-LOOP] Sustain mini-tick error:', e); }
+
     const legibilityScore = totalActions > 0 ? parseFloat((
       (1 - discourseActions / totalActions) * 30 +  // low essay ratio = good
       (econActions / totalActions) * 20 +            // economic density
@@ -3011,6 +3115,8 @@ Respond with EXACTLY this JSON (no markdown):
       action_distribution: cycleActionCounts,
       discourse_pct: Math.round(discourseActions / Math.max(1, totalActions) * 100),
       results,
+      comms_cycle: commsResult,
+      sustain_tick: sustainResult,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

@@ -7,7 +7,7 @@
 // can invoke to get structured outputs for specific tasks.
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
-import { callLLM } from '@/lib/ai/call-llm';
+import { callLLM, hasLLMProvider } from '@/lib/ai/call-llm';
 
 interface MCPDefinition {
   mcp_name: string;
@@ -41,7 +41,7 @@ export async function createMCP(
   context: { profession?: string; faction?: string },
 ): Promise<MCPDefinition | null> {
   const sb = getSupabaseAdminClient();
-  if (!sb || !GROQ_KEY) return null;
+  if (!sb || !hasLLMProvider()) return null;
 
   const raw = await mcpCall([
     {
@@ -104,7 +104,7 @@ export async function executeMCP(
   inputs: Record<string, any>,
 ): Promise<MCPExecutionResult> {
   const sb = getSupabaseAdminClient();
-  if (!sb || !GROQ_KEY) return { success: false, output: null, mcp_name: 'unknown', execution_ms: 0 };
+  if (!sb || !hasLLMProvider()) return { success: false, output: null, mcp_name: 'unknown', execution_ms: 0 };
 
   const start = Date.now();
 
